@@ -18,15 +18,13 @@ export default function Login() {
     setLoading(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setError(error.message)
-    else router.push('/dashboard') // Redirect on success
+    else router.push('/dashboard')
     setLoading(false)
   }
 
-  // A basic sign-up to get the user in the system.
-  // We'll point them to the full register page you built.
   const handleSignUp = async (e) => {
     e.preventDefault()
-    router.push('/register') // Go to the full registration page
+    router.push('/register')
   }
 
   return (
@@ -59,7 +57,8 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full p-2 pl-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              // FIX: Added 'text-gray-900' to ensure text is visible
+              className="w-full p-2 pl-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-900"
               placeholder="you@example.com"
             />
           </div>
@@ -75,7 +74,8 @@ export default function Login() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-2 pl-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              // FIX: Added 'text-gray-900'
+              className="w-full p-2 pl-10 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none text-gray-900"
               placeholder="••••••••"
             />
           </div>
