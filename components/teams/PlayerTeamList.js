@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Shield, Calendar } from 'lucide-react'
 import Link from 'next/link'
+import EmptyState from '../ui/EmptyState' // NEW
 
 export default function PlayerTeamList() {
   const [teams, setTeams] = useState([])
@@ -12,23 +13,14 @@ export default function PlayerTeamList() {
 
   const fetchTeams = async () => {
     const res = await fetch('/api/teams/joined')
-    if (res.ok) {
-      const data = await res.json()
-      setTeams(data)
-    }
+    if (res.ok) setTeams(await res.json())
     setLoading(false)
   }
 
   if (loading) return <p className="text-gray-500 mt-4">Loading your teams...</p>
 
   if (teams.length === 0) {
-    return (
-      <div className="text-center p-8 bg-gray-50 rounded-lg border border-dashed border-gray-300 mt-6">
-        <Shield className="mx-auto h-10 w-10 text-gray-400" />
-        <h3 className="mt-2 text-sm font-medium text-gray-900">No teams yet</h3>
-        <p className="mt-1 text-sm text-gray-500">Enter a code above to join your coach's team.</p>
-      </div>
-    )
+    return <EmptyState icon={Shield} title="No teams yet" message="Enter a code above to join your coach's team." />
   }
 
   return (
@@ -39,7 +31,6 @@ export default function PlayerTeamList() {
           <div key={team.id} className="bg-white p-5 rounded-lg shadow border border-gray-200">
             <div className="flex justify-between items-start">
               <div>
-                {/* ADDED LINK HERE */}
                 <Link href={`/team/${team.id}`} className="font-bold text-lg text-gray-900 hover:text-yellow-600 hover:underline">
                   {team.name}
                 </Link>
