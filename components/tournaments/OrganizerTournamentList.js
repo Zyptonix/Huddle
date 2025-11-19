@@ -1,33 +1,24 @@
 import { useState, useEffect } from 'react'
-import { Trophy, Calendar, Users } from 'lucide-react'
+import { Trophy, Calendar } from 'lucide-react'
+import EmptyState from '../ui/EmptyState' // NEW
 
 export default function OrganizerTournamentList() {
   const [tournaments, setTournaments] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    const fetchTournaments = async () => {
+      const res = await fetch('/api/tournaments/created')
+      if (res.ok) setTournaments(await res.json())
+      setLoading(false)
+    }
     fetchTournaments()
   }, [])
-
-  const fetchTournaments = async () => {
-    const res = await fetch('/api/tournaments/created')
-    if (res.ok) {
-      const data = await res.json()
-      setTournaments(data)
-    }
-    setLoading(false)
-  }
 
   if (loading) return <p className="text-gray-500 mt-4">Loading tournaments...</p>
 
   if (tournaments.length === 0) {
-    return (
-      <div className="mt-8 text-center p-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-        <Trophy className="mx-auto h-10 w-10 text-gray-400" />
-        <h3 className="mt-2 text-sm font-medium text-gray-900">No tournaments yet</h3>
-        <p className="mt-1 text-sm text-gray-500">Create your first tournament to get started.</p>
-      </div>
-    )
+    return <EmptyState icon={Trophy} title="No tournaments yet" message="Create your first tournament to get started." />
   }
 
   return (
@@ -54,7 +45,6 @@ export default function OrganizerTournamentList() {
                 {t.status}
               </span>
             </div>
-            
             <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between text-sm text-gray-500">
               <div className="flex items-center gap-1">
                 <Calendar size={14} /> 

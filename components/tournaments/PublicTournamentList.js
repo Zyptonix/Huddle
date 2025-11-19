@@ -1,34 +1,25 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Trophy, Calendar, Shield, ArrowRight } from 'lucide-react'
+import EmptyState from '../ui/EmptyState' // NEW
 
 export default function PublicTournamentList() {
   const [tournaments, setTournaments] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    const fetchTournaments = async () => {
+      const res = await fetch('/api/tournaments/all')
+      if (res.ok) setTournaments(await res.json())
+      setLoading(false)
+    }
     fetchTournaments()
   }, [])
-
-  const fetchTournaments = async () => {
-    const res = await fetch('/api/tournaments/all')
-    if (res.ok) {
-      const data = await res.json()
-      setTournaments(data)
-    }
-    setLoading(false)
-  }
 
   if (loading) return <div className="text-center p-10 text-gray-500">Loading tournaments...</div>
 
   if (tournaments.length === 0) {
-    return (
-      <div className="text-center p-10 bg-white rounded-lg border border-gray-200">
-        <Trophy className="mx-auto h-12 w-12 text-gray-300 mb-3" />
-        <h3 className="text-lg font-medium text-gray-900">No tournaments found</h3>
-        <p className="text-gray-500">Check back later for upcoming events.</p>
-      </div>
-    )
+    return <EmptyState icon={Trophy} title="No tournaments found" message="Check back later for upcoming events." />
   }
 
   return (
@@ -47,20 +38,16 @@ export default function PublicTournamentList() {
                 {t.format.replace('_', ' ')}
               </span>
             </div>
-            
             <h3 className="text-xl font-bold text-gray-900 mb-2">{t.name}</h3>
-            
             <div className="flex items-center gap-2 text-sm text-gray-600 mb-4">
               <Shield size={16} />
               <span>By {t.profiles?.username || 'Unknown'}</span>
             </div>
-
             <div className="flex items-center gap-2 text-sm text-gray-500">
               <Calendar size={16} />
               <span>{t.start_date ? new Date(t.start_date).toLocaleDateString() : 'Coming Soon'}</span>
             </div>
           </div>
-          
           <div className="p-4 bg-gray-50 border-t border-gray-200">
             <Link 
               href={`/tournament/${t.id}`}

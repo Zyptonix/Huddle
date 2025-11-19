@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Users, Copy, Check } from 'lucide-react'
 import Link from 'next/link'
+import EmptyState from '../ui/EmptyState' // NEW
 
 export default function CoachTeamList() {
   const [teams, setTeams] = useState([])
@@ -13,13 +14,9 @@ export default function CoachTeamList() {
 
   const fetchTeams = async () => {
     const res = await fetch('/api/teams/created')
-    if (res.ok) {
-      const data = await res.json()
-      setTeams(data)
-    }
+    if (res.ok) setTeams(await res.json())
     setLoading(false)
   }
-
   // --- FIX: Use robust copy method for iframes ---
   const copyToClipboard = (text, id) => {
     const textArea = document.createElement("textarea")
@@ -46,13 +43,7 @@ export default function CoachTeamList() {
   if (loading) return <p className="text-gray-500 mt-4">Loading your teams...</p>
 
   if (teams.length === 0) {
-    return (
-      <div className="mt-8 text-center p-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
-        <Users className="mx-auto h-10 w-10 text-gray-400" />
-        <h3 className="mt-2 text-sm font-medium text-gray-900">No teams yet</h3>
-        <p className="mt-1 text-sm text-gray-500">Create your first team above to get started.</p>
-      </div>
-    )
+    return <EmptyState icon={Users} title="No teams yet" message="Create your first team above to get started." />
   }
 
   return (
