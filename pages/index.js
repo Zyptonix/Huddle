@@ -13,14 +13,14 @@ export default function Home() {
         <title>Huddle - The Ultimate Sports Platform</title>
       </Head>
 
-      {/* Reusing the main Navbar for consistency */}
+      {/* The Navbar handles the login/dashboard buttons automatically */}
       <Navbar />
 
       {/* --- HERO SECTION --- */}
       <div className="relative overflow-hidden bg-gray-900">
         <div className="absolute inset-0">
           <img
-            src="/images/hero-bg.jpg" // Ensure you have this image or revert to unsplash URL
+            src="/images/hero-bg.jpg" // Ensure you have this image in public/images/
             alt="Football pitch"
             className="w-full h-full object-cover opacity-40"
           />
@@ -48,7 +48,7 @@ export default function Home() {
                 href="/login" 
                 className="flex items-center justify-center px-8 py-4 text-lg font-bold rounded-full text-white border border-gray-600 hover:bg-gray-800 transition-all"
               >
-                View Demo
+                Sign In
               </Link>
             </div>
           </div>
