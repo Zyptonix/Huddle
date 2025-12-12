@@ -3,23 +3,33 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
+import UserSearch from './UserSearch'
 import { 
   Menu, X, ChevronDown, LogOut, User, Settings, 
-  MessageCircle, UserPlus // Added new icons
+  MessageCircle, UserPlus, Clipboard, Users 
 } from 'lucide-react'
 
 export default function Navbar() {
   const { user, profile } = useAuth()
   const router = useRouter()
+  
+  // State
   const [isOpen, setIsOpen] = useState(false) // Mobile menu
-  const [dropdownOpen, setDropdownOpen] = useState(false) // User dropdown
-  const dropdownRef = useRef(null)
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false) // Profile dropdown
+  const [teamsDropdownOpen, setTeamsDropdownOpen] = useState(false) // New Teams dropdown
+  
+  // Refs for click outside
+  const userDropdownRef = useRef(null)
+  const teamsDropdownRef = useRef(null)
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setDropdownOpen(false)
+      if (userDropdownRef.current && !userDropdownRef.current.contains(event.target)) {
+        setUserDropdownOpen(false)
+      }
+      if (teamsDropdownRef.current && !teamsDropdownRef.current.contains(event.target)) {
+        setTeamsDropdownOpen(false)
       }
     }
     document.addEventListener("mousedown", handleClickOutside)
@@ -28,20 +38,12 @@ export default function Navbar() {
 
   const handleLogout = async (e) => {
     if (e) e.preventDefault()
-    
-    // Create a timeout promise to force redirect if signOut hangs
     const timeout = new Promise((resolve) => setTimeout(resolve, 1000))
-    
     try {
-      // Race the signOut against the timeout
-      await Promise.race([
-        supabase.auth.signOut(),
-        timeout
-      ])
+      await Promise.race([supabase.auth.signOut(), timeout])
     } catch (error) {
       console.error("Logout error:", error)
     } finally {
-      // Always redirect to home to clear state
       window.location.href = '/'
     }
   }
@@ -55,12 +57,19 @@ export default function Navbar() {
         : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
     }`
 
+  const isTeamsActive = 
+    isActive('/team_portal') || 
+    isActive('/team/') || 
+    isActive('/player-availability') || 
+    isActive('/tactics')
+
   return (
     <nav className="bg-white/90 backdrop-blur-md border-b border-gray-200 sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          {/* Logo & Desktop Nav */}
-          <div className="flex items-center">
+        <div className="flex justify-between h-16 items-center">
+          
+          {/* LEFT: Logo & Search */}
+          <div className="flex items-center flex-1 gap-8">
             <div className="flex-shrink-0">
               <Link 
                 href={user ? "/dashboard" : "/"} 
@@ -71,70 +80,87 @@ export default function Navbar() {
                 </span>
               </Link>
             </div>
-            
+
             {user && (
-              <div className="hidden md:ml-10 md:flex md:space-x-1 items-center">
-                <Link 
-                  href="/dashboard" 
-                  className={navLinkStyle(router.pathname === '/dashboard')}
-                >
-                  Dashboard
-                </Link>
-                
-                <Link 
-                  href="/tournament_portal" 
-                  className={navLinkStyle(isActive('/tournament_portal') || isActive('/tournament/'))}
-                >
-                  {profile?.role === 'organizer' ? 'Manage Tournaments' : 'Tournaments'}
-                </Link>
-
-                {(profile?.role === 'coach' || profile?.role === 'player') && (
-                  <Link 
-                    href="/team_portal" 
-                    className={navLinkStyle(isActive('/team_portal') || isActive('/team/'))}
-                  >
-                    {profile?.role === 'coach' ? 'My Teams' : 'My Squads'}
-                  </Link>
-                )}
-
-                {/* --- NEW: Recruit Players (Coach Only) --- */}
-                {profile?.role === 'coach' && (
-                  <Link 
-                    href="/player-availability" 
-                    className={navLinkStyle(isActive('/player-availability'))}
-                  >
-                    <UserPlus size={16} /> Recruit
-                  </Link>
-                )}
-
-                {profile?.role === 'coach' && (
-                  <Link 
-                    href="/tactics/new" 
-                    className={navLinkStyle(isActive('/tactics'))}
-                  >
-                    Tactics
-                  </Link>
-                )}
-
-                {/* --- NEW: Messages (Everyone) --- */}
-                <Link 
-                  href="/messages" 
-                  className={navLinkStyle(isActive('/messages'))}
-                >
-                  <MessageCircle size={16} /> Messages
-                </Link>
-              </div>
+                <div className="hidden md:block w-full max-w-sm">
+                    <UserSearch />
+                </div>
             )}
           </div>
 
-          {/* --- RIGHT SIDE ACTIONS --- */}
-          <div className="hidden md:flex items-center space-x-4">
+          {/* MIDDLE: Desktop Navigation */}
+          <div className="hidden md:flex items-center space-x-1">
+             {user && (
+               <>
+                <Link href="/dashboard" className={navLinkStyle(router.pathname === '/dashboard')}>
+                  Dashboard
+                </Link>
+                
+                <Link href="/tournament_portal" className={navLinkStyle(isActive('/tournament_portal') || isActive('/tournament/'))}>
+                  {profile?.role === 'organizer' ? 'Manage Tournaments' : 'Tournaments'}
+                </Link>
+
+                {/* TEAMS DROPDOWN */}
+                {(profile?.role === 'coach' || profile?.role === 'player') && (
+                  <div className="relative" ref={teamsDropdownRef}>
+                    <button
+                      onClick={() => setTeamsDropdownOpen(!teamsDropdownOpen)}
+                      className={navLinkStyle(isTeamsActive)}
+                    >
+                      {profile?.role === 'coach' ? 'My Teams' : 'My Squads'}
+                      <ChevronDown size={14} className={`transition-transform duration-200 ${teamsDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {teamsDropdownOpen && (
+                      <div className="absolute left-0 mt-2 w-56 rounded-xl shadow-xl py-2 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in zoom-in-95 duration-200">
+                        
+                        <Link 
+                          href="/team_portal"
+                          className="block px-4 py-2.5 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 flex items-center gap-3 transition-colors"
+                          onClick={() => setTeamsDropdownOpen(false)}
+                        >
+                          <Users size={16} /> Team Portal
+                        </Link>
+
+                        {profile?.role === 'coach' && (
+                          <Link 
+                            href="/player-availability"
+                            className="block px-4 py-2.5 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 flex items-center gap-3 transition-colors"
+                            onClick={() => setTeamsDropdownOpen(false)}
+                          >
+                            <UserPlus size={16} /> Recruit
+                          </Link>
+                        )}
+
+                        {profile?.role === 'coach' && (
+                          <Link 
+                            href="/tactics/new"
+                            className="block px-4 py-2.5 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 flex items-center gap-3 transition-colors"
+                            onClick={() => setTeamsDropdownOpen(false)}
+                          >
+                            <Clipboard size={16} /> Tactics Board
+                          </Link>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* UPDATED MESSAGES LINK */}
+                <Link href="/messages" className={navLinkStyle(isActive('/messages'))}>
+                   <MessageCircle size={16} /> Messages
+                </Link>
+               </>
+             )}
+          </div>
+
+          {/* RIGHT: User Profile Dropdown */}
+          <div className="hidden md:flex items-center space-x-4 ml-4">
             {user ? (
-              // 1. LOGGED IN STATE: User Dropdown
-              <div className="relative ml-3" ref={dropdownRef}>
+              <div className="relative" ref={userDropdownRef}>
                 <button
                   type="button"
-                  onClick={() => setDropdownOpen(!dropdownOpen)}
+                  onClick={() => setUserDropdownOpen(!userDropdownOpen)}
                   className="flex items-center gap-3 bg-white pl-1 pr-3 py-1 rounded-full border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200"
                 >
                   <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 p-[2px]">
@@ -152,10 +178,10 @@ export default function Navbar() {
                     <span className="text-xs font-bold text-gray-900 leading-none">{profile?.username || 'User'}</span>
                     <span className="text-xs font-medium text-blue-600 capitalize leading-none mt-1">{profile?.role}</span>
                   </div>
-                  <ChevronDown size={14} className={`text-gray-400 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown size={14} className={`text-gray-400 transition-transform duration-200 ${userDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
-                {dropdownOpen && (
+                {userDropdownOpen && (
                   <div className="origin-top-right absolute right-0 mt-3 w-56 rounded-xl shadow-xl py-2 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in zoom-in-95 duration-200">
                     <div className="px-4 py-3 border-b border-gray-50 mb-1">
                       <p className="text-xs text-gray-400 uppercase font-bold tracking-wider">Signed in as</p>
@@ -163,15 +189,23 @@ export default function Navbar() {
                     </div>
                     
                     <Link 
+                      href={`/profile/${profile?.id || user?.id}`}
+                      className="block px-4 py-2.5 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 flex items-center gap-3 transition-colors"
+                      onClick={() => setUserDropdownOpen(false)}
+                    >
+                      <User size={16} /> My Profile
+                    </Link>
+
+                    <Link 
                       href="/account"
                       className="block px-4 py-2.5 text-sm text-gray-600 hover:text-blue-600 hover:bg-blue-50 flex items-center gap-3 transition-colors"
+                      onClick={() => setUserDropdownOpen(false)}
                     >
                       <Settings size={16} /> Account Settings
                     </Link>
                     
                     <button
                       type="button"
-                      // FIX: Using only onClick with a robust timeout fallback
                       onClick={handleLogout}
                       className="w-full text-left block px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-colors"
                     >
@@ -181,20 +215,9 @@ export default function Navbar() {
                 )}
               </div>
             ) : (
-              // 2. LOGGED OUT STATE: Sign In Buttons
               <>
-                <Link 
-                  href="/login" 
-                  className="text-gray-600 hover:text-blue-600 font-semibold px-4 py-2 transition-colors"
-                >
-                  Sign in
-                </Link>
-                <Link 
-                  href="/register" 
-                  className="bg-blue-600 text-white hover:bg-blue-700 px-6 py-2.5 rounded-full font-bold transition-all shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 transform hover:-translate-y-0.5"
-                >
-                  Get Started
-                </Link>
+                <Link href="/login" className="text-gray-600 hover:text-blue-600 font-semibold px-4 py-2 transition-colors">Sign in</Link>
+                <Link href="/register" className="bg-blue-600 text-white hover:bg-blue-700 px-6 py-2.5 rounded-full font-bold transition-all shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30">Get Started</Link>
               </>
             )}
           </div>
@@ -214,53 +237,62 @@ export default function Navbar() {
       
       {/* Mobile Menu */}
       {isOpen && (
-        <div className="md:hidden border-t border-gray-200">
-          <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+        <div className="md:hidden border-t border-gray-200 h-screen overflow-y-auto pb-20">
+          <div className="px-4 pt-4 pb-3 space-y-1 sm:px-3">
              {user ? (
                <>
+                 <div className="mb-4">
+                    <UserSearch className="w-full" />
+                 </div>
+
                  <Link href="/dashboard" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
                    Dashboard
                  </Link>
                  <Link href="/tournament_portal" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
                    Tournaments
                  </Link>
+                 
                  {(profile?.role === 'coach' || profile?.role === 'player') && (
-                   <Link href="/team_portal" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
-                     Teams
-                   </Link>
+                    <div className="py-2">
+                        <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">
+                            {profile?.role === 'coach' ? 'My Teams' : 'My Squads'}
+                        </p>
+                        <Link href="/team_portal" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 flex items-center gap-2">
+                             <Users size={16} /> Team Portal
+                        </Link>
+                        {profile?.role === 'coach' && (
+                           <>
+                             <Link href="/player-availability" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 flex items-center gap-2">
+                               <UserPlus size={16} /> Recruit
+                             </Link>
+                             <Link href="/tactics/new" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 flex items-center gap-2">
+                               <Clipboard size={16} /> Tactics
+                             </Link>
+                           </>
+                        )}
+                    </div>
                  )}
-                 {profile?.role === 'coach' && (
-                   <>
-                     <Link href="/player-availability" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 flex items-center gap-2">
-                       <UserPlus size={16} /> Recruit Players
-                     </Link>
-                     <Link href="/tactics/new" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
-                       Tactics
-                     </Link>
-                   </>
-                 )}
+
                  <Link href="/messages" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 flex items-center gap-2">
                     <MessageCircle size={16} /> Messages
                  </Link>
-                 <Link href="/account" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
-                   Account
-                 </Link>
-                 <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="w-full text-left block px-3 py-2 rounded-md text-base font-medium text-red-600 hover:bg-red-50"
-                 >
-                    Sign out
-                 </button>
+
+                 <div className="border-t border-gray-100 my-2 pt-2">
+                    <Link href={`/profile/${profile?.id || user?.id}`} className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
+                    My Profile
+                    </Link>
+                    <Link href="/account" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
+                    Account
+                    </Link>
+                    <button type="button" onClick={handleLogout} className="w-full text-left block px-3 py-2 rounded-md text-base font-medium text-red-600 hover:bg-red-50">
+                        Sign out
+                    </button>
+                 </div>
                </>
              ) : (
                <>
-                 <Link href="/login" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
-                    Sign in
-                 </Link>
-                 <Link href="/register" className="block px-3 py-2 rounded-md text-base font-bold text-blue-600 hover:bg-blue-50">
-                    Create Account
-                 </Link>
+                 <Link href="/login" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">Sign in</Link>
+                 <Link href="/register" className="block px-3 py-2 rounded-md text-base font-bold text-blue-600 hover:bg-blue-50">Create Account</Link>
                </>
              )}
           </div>
