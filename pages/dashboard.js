@@ -14,6 +14,8 @@ import FanDashboard from '../components/dashboards/FanDashboard'
 // Action Cards
 import TeamPortalCard from '../components/dashboards/TeamPortalCard'
 import TournamentPortalCard from '../components/dashboards/TournamentPortalCard'
+import PlayerAvailabilityCard from '../components/dashboards/PlayerAvailabilityCard'
+import MessagesPortalCard from '../components/dashboards/MessagesPortalCard'
 
 export default function Dashboard() {
   const { user, profile, loading } = useAuth()
@@ -83,7 +85,9 @@ export default function Dashboard() {
       {/* --- Footer Actions --- */}
       <div className="mt-10 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-8 duration-1000">
         {(profile.role === 'coach' || profile.role === 'player') && <TeamPortalCard />}
+        {profile.role === 'coach' && <PlayerAvailabilityCard />}
         <TournamentPortalCard role={profile.role} />
+        <MessagesPortalCard />
       </div>
     </Layout>
   )
