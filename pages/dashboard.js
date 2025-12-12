@@ -1,47 +1,46 @@
 import { useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useRouter } from 'next/router'
-
-// FIX: Correct path to UI Atom
 import Layout from '../components/ui/Layout'
 
-// Dashboards
-import OrganizerDashboard from '../components/dashboards/OrganizerDashboard'
-import CoachDashboard from '../components/dashboards/CoachDashboard'
-import PlayerDashboard from '../components/dashboards/PlayerDashboard'
-import FanDashboard from '../components/dashboards/FanDashboard'
 
 // Action Cards
 import TeamPortalCard from '../components/dashboards/TeamPortalCard'
 import TournamentPortalCard from '../components/dashboards/TournamentPortalCard'
 import PlayerAvailabilityCard from '../components/dashboards/PlayerAvailabilityCard'
 import MessagesPortalCard from '../components/dashboards/MessagesPortalCard'
+import DashboardView from '../components/dashboards/DashboardView'
+import Loading from '../components/ui/Loading'
 
 export default function Dashboard() {
   const { user, profile, loading } = useAuth()
   const router = useRouter()
 
+  // Debug Log
+  console.log('[Dashboard Debug] Render:', { 
+    loading, 
+    hasUser: !!user, 
+    hasProfile: !!profile 
+  })
+
   useEffect(() => {
     if (!loading && !user) {
+      console.log('[Dashboard Debug] Redirecting to login...')
       router.push('/login')
     }
   }, [user, loading, router])
 
-  // --- FIX: Restore the guard clause ---
-  if (loading || !user || !profile) return null
-
-  // --- HELPER: Get Theme based on Role ---
-  const getTheme = (role) => {
-    switch (role) {
-      case 'organizer': return { gradient: 'from-blue-600 to-indigo-700', icon: '🛡️' }
-      case 'coach': return { gradient: 'from-green-600 to-emerald-700', icon: '📋' }
-      case 'player': return { gradient: 'from-yellow-500 to-amber-600', icon: '⚽' }
-      case 'fan': return { gradient: 'from-red-500 to-rose-600', icon: '❤️' }
-      default: return { gradient: 'from-gray-600 to-gray-700', icon: '👤' }
-    }
+  if (loading) {
+    return <Loading message="Authenticating..." />
   }
 
-  const theme = getTheme(profile.role)
+  if (!user) return null
+
+  // If user exists but no profile, show specific loading state
+  if (user && !profile) {
+    console.log('[Dashboard Debug] User exists but Profile missing. Showing setup loader.')
+    return <Loading message="Setting up your profile..." />
+  }
 
   return (
     <Layout title="Dashboard - Huddle">
@@ -89,6 +88,7 @@ export default function Dashboard() {
         <TournamentPortalCard role={profile.role} />
         <MessagesPortalCard />
       </div>
+      <DashboardView user={user} profile={profile} />
     </Layout>
   )
 }

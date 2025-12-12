@@ -4,77 +4,81 @@ export default async function handler(req, res) {
   const supabase = createPagesServerClient({ req, res })
   const { id } = req.query
 
-  // --- GET: Fetch Tournament ---
   if (req.method === 'GET') {
-    const { data: tournament, error } = await supabase
-      .from('tournaments')
-      .select(`*, profiles:organizer_id(username)`)
-      .eq('id', id)
-      .single()
+    try {
+      // 1. Fetch Basic Tournament Info
+      const { data: tournament, error: tError } = await supabase
+        .from('tournaments')
+        .select('*')
+        .eq('id', id)
+        .single()
 
-    if (error || !tournament) return res.status(404).json({ error: 'Tournament not found' })
+      if (tError) throw tError
+      if (!tournament) return res.status(404).json({ error: 'Tournament not found' })
 
-    // 1. Fetch Teams
-    const { data: teams } = await supabase
-      .from('tournament_registrations')
-      .select(`status, teams(id, name, sport, coach_id)`)
-      .eq('tournament_id', id)
+      // 2. Fetch Registered Teams (Joining with the 'teams' table to get names/logos)
+      const { data: teamsData, error: teamsError } = await supabase
+        .from('tournament_teams')
+        .select(`
+          status,
+          teams (
+            id,
+            name,
+            logo_url,
+            owner_id
+          )
+        `)
+        .eq('tournament_id', id)
+      
+      if (teamsError) throw teamsError
 
-    // 2. Fetch Announcements
-    const { data: announcements } = await supabase
-      .from('announcements')
-      .select(`*, comments(id, content, created_at, profiles(username, avatar_url))`)
-      .eq('tournament_id', id)
-      .order('created_at', { ascending: false })
+      // Flatten the team structure for easier frontend use
+      const teams = teamsData.map(t => ({
+        ...t.teams,
+        registration_status: t.status
+      }))
 
-    // 3. Fetch Matches (The missing part)
-    const { data: matches } = await supabase
-      .from('matches')
-      .select(`
-        id, 
-        start_time, 
-        status, 
-        team_a_score, 
-        team_b_score,
-        team_a:team_a_id(name), 
-        team_b:team_b_id(name),
-        venue:venue_id(name)
-      `)
-      .eq('tournament_id', id)
-      .order('id', { ascending: true })
+      // 3. Fetch Matches
+      const { data: matches, error: mError } = await supabase
+        .from('matches')
+        .select(`
+          id,
+          date,
+          status,
+          round,
+          score_a,
+          score_b,
+          team_a: team_a_id ( name, logo_url ),
+          team_b: team_b_id ( name, logo_url )
+        `)
+        .eq('tournament_id', id)
+        .order('date', { ascending: true })
 
-    const responseData = {
-      ...tournament,
-      organizerName: tournament.profiles?.username,
-      teams: teams.map(t => ({ ...t.teams, status: t.status })),
-      announcements: announcements.map(a => ({
-        ...a,
-        comments: a.comments.sort((x, y) => new Date(x.created_at) - new Date(y.created_at))
-      })),
-      matches: matches || []
+      if (mError) throw mError
+
+      // 4. Fetch Announcements
+      const { data: announcements, error: aError } = await supabase
+        .from('announcements')
+        .select('*')
+        .eq('tournament_id', id)
+        .order('created_at', { ascending: false })
+
+      if (aError) throw aError
+
+      // 5. Combine everything
+      return res.status(200).json({
+        ...tournament,
+        teams,
+        matches,
+        announcements
+      })
+
+    } catch (error) {
+      console.error('Error fetching tournament:', error)
+      return res.status(500).json({ error: error.message })
     }
-    return res.status(200).json(responseData)
   }
 
-  // --- PUT: Update Tournament ---
-  if (req.method === 'PUT') {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return res.status(401).json({ error: 'Unauthorized' })
-
-    const { name, sport, format, start_date, status } = req.body
-
-    const { data, error } = await supabase
-      .from('tournaments')
-      .update({ name, sport, format, start_date, status })
-      .eq('id', id)
-      .eq('organizer_id', user.id)
-      .select()
-      .single()
-
-    if (error) return res.status(500).json({ error: error.message })
-    return res.status(200).json(data)
-  }
-
-  res.setHeader('Allow', ['GET', 'PUT'])
+  res.setHeader('Allow', ['GET'])
   return res.status(405).end(`Method ${req.method} Not Allowed`)
 }

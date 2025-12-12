@@ -2,26 +2,28 @@ import { createPagesServerClient } from '@supabase/auth-helpers-nextjs'
 
 export default async function handler(req, res) {
   const supabase = createPagesServerClient({ req, res })
-
-  // 1. Check if user is logged in
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) return res.status(401).json({ error: 'Unauthorized' })
+  const { recruiting } = req.query
 
   if (req.method === 'GET') {
     try {
-      // 2. Fetch teams owned by this user
-      const { data, error } = await supabase
+      let query = supabase
         .from('teams')
         .select(`
           *,
           member_count: team_members(count)
         `)
-        .eq('owner_id', session.user.id)
         .order('created_at', { ascending: false })
+        .limit(20) // Limit to 20 for now to keep it fast
+
+      // If ?recruiting=true is passed, filter the results
+      if (recruiting === 'true') {
+        query = query.eq('is_recruiting', true)
+      }
+
+      const { data, error } = await query
 
       if (error) throw error
 
-      // 3. Format member count
       const formatted = data.map(team => ({
         ...team,
         member_count: team.member_count?.[0]?.count || 0
@@ -29,7 +31,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json(formatted)
     } catch (error) {
-      console.error('Error fetching created teams:', error)
+      console.error('Error fetching public teams:', error)
       return res.status(500).json({ error: error.message })
     }
   }

@@ -2,10 +2,11 @@ import { useState } from 'react'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { supabase } from '../../lib/supabaseClient'
-import { LogIn, Mail, Lock, UserPlus } from 'lucide-react'
+import { LogIn, Mail, Lock, UserPlus, AlertCircle } from 'lucide-react'
 import Input from '../ui/Input'
 import Button from '../ui/Button'
 import Alert from '../ui/Alert'
+import GoogleButton from './GoogleButton'
 
 export default function LoginForm() {
   const [email, setEmail] = useState('')
@@ -28,6 +29,16 @@ export default function LoginForm() {
     <div className="p-8 bg-white rounded-xl shadow-lg w-full max-w-md">
       <h1 className="text-3xl font-bold mb-6 text-center text-gray-800">Sign in to Huddle</h1>
       
+      {/* --- Google Sign In --- */}
+      <div className="space-y-4 mb-6">
+        <GoogleButton />
+        <div className="relative flex py-2 items-center">
+          <div className="flex-grow border-t border-gray-300"></div>
+          <span className="flex-shrink-0 mx-4 text-gray-400 text-xs uppercase font-bold">Or sign in with email</span>
+          <div className="flex-grow border-t border-gray-300"></div>
+        </div>
+      </div>
+
       <Alert type="error" message={error} className="mb-4" />
 
       <form onSubmit={handleLogin} className="space-y-4">

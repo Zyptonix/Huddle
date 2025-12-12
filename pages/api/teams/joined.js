@@ -1,39 +1,45 @@
 import { createPagesServerClient } from '@supabase/auth-helpers-nextjs'
 
 export default async function handler(req, res) {
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', ['GET'])
-    return res.status(405).end(`Method ${req.method} Not Allowed`)
+  const supabase = createPagesServerClient({ req, res })
+
+  // Check for session
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return res.status(401).json({ error: 'Unauthorized' })
+
+  if (req.method === 'GET') {
+    try {
+      const { data, error } = await supabase
+        .from('team_members')
+        .select(`
+          team_id,
+          role,
+          teams (
+            id,
+            name,
+            sport,
+            logo_url,
+            description,
+            is_recruiting,
+            member_count: team_members(count)
+          )
+        `)
+        .eq('user_id', session.user.id)
+        .eq('status', 'active')
+
+      if (error) throw error
+
+      // Flatten the response so it's just a list of teams
+      const teams = data.map(item => ({
+        ...item.teams,
+        role: item.role,
+        member_count: item.teams.member_count?.[0]?.count || 0
+      }))
+
+      return res.status(200).json(teams)
+    } catch (error) {
+      console.error('Error fetching joined teams:', error)
+      return res.status(500).json({ error: error.message })
+    }
   }
-
-  const supabaseServer = createPagesServerClient({ req, res })
-  const { data: { user } } = await supabaseServer.auth.getUser()
-
-  if (!user) return res.status(401).json({ error: 'Unauthorized' })
-
-  // Complex Query: Get teams that this user is a member of.
-  const { data, error } = await supabaseServer
-    .from('team_members')
-    .select(`
-      joined_at,
-      teams (
-        id,
-        name,
-        sport,
-        profiles:coach_id (username) 
-      )
-    `)
-    .eq('player_id', user.id)
-    .order('joined_at', { ascending: false })
-
-  if (error) return res.status(500).json({ error: error.message })
-
-  // Flatten the structure a bit for the frontend
-  const formattedData = data.map(item => ({
-    joined_at: item.joined_at,
-    ...item.teams,
-    coach_name: item.teams.profiles?.username || 'Unknown Coach'
-  }))
-
-  return res.status(200).json(formattedData)
 }
