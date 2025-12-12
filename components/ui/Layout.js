@@ -12,7 +12,7 @@ export default function Layout({ children, title = "Huddle" }) {
   if (!user) return <>{children}</> 
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-700">
       <Head>
         <title>{title}</title>
       </Head>
@@ -25,3 +25,4 @@ export default function Layout({ children, title = "Huddle" }) {
     </div>
   )
 }
+
