@@ -14,7 +14,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    let mounted = true
+    let mounted = true;
 
     const init = async () => {
       try {
@@ -76,13 +76,7 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider value={{ user, profile, supabase }}>
       {children}
     </AuthContext.Provider>
-  )
+  );
 }
 
-export function useAuth() {
-  const ctx = useContext(AuthContext)
-  if (!ctx) {
-    throw new Error('useAuth must be used inside AuthProvider')
-  }
-  return ctx
-}
+export const useAuth = () => useContext(AuthContext);

@@ -14,6 +14,8 @@ import {
 
 export default function Merch() {
   const { user, profile } = useAuth();
+  
+  // State
   const [items, setItems] = useState([]);
   const [isOrganizer, setIsOrganizer] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);

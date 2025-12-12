@@ -1,169 +1,158 @@
-import { useState } from 'react'
-import { Calendar, RefreshCw, Trophy, MapPin, Clock } from 'lucide-react'
+import Link from 'next/link';
+import { Calendar, Clock, MapPin, Edit3, ChevronRight, Trophy } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
-export default function MatchSchedule({ matches, isOrganizer, tournamentId, onScheduleGenerated }) {
-  const [generating, setGenerating] = useState(false)
+export default function MatchSchedule({ matches, isOrganizer }) {
+  const { user } = useAuth();
 
-  // Helper to create team avatar initials
-  const getInitials = (name) => {
-    if (!name) return '?'
-    return name.substring(0, 2).toUpperCase()
-  }
+  // Helper: Split date for the visual calendar box
+  const getDateParts = (dateString) => {
+    if (!dateString) return { month: 'TBD', day: '--', time: '--:--' };
+    const date = new Date(dateString);
+    return {
+      month: date.toLocaleDateString('en-US', { month: 'short' }).toUpperCase(),
+      day: date.toLocaleDateString('en-US', { day: 'numeric' }),
+      time: date.toLocaleDateString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      weekday: date.toLocaleDateString('en-US', { weekday: 'short' })
+    };
+  };
 
-  // Helper to format match time nicely
-  const formatTime = (dateString, timeString) => {
-    if (!dateString) return 'TBD'
-    const date = new Date(dateString).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-    const time = timeString || 'TBD'
-    return { date, time }
-  }
-
-  const handleGenerate = async () => {
-    if (!confirm("This will generate fixtures based on registered teams. Existing matches might be reset. Continue?")) return
-    setGenerating(true)
-    
-    try {
-      const res = await fetch('/api/tournaments/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tournamentId })
-      })
-      
-      const data = await res.json()
-      if (res.ok) {
-        onScheduleGenerated() // Refresh data
-      } else {
-        alert(data.error || "Failed to generate matches")
-      }
-    } catch (e) {
-      console.error(e)
-      alert("An error occurred")
-    } finally {
-      setGenerating(false)
+  // Helper: Status Badge Styling
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'live':
+        return (
+          <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-red-50 border border-red-100 text-red-600 text-[10px] font-bold uppercase tracking-wider animate-pulse">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-600"></span> Live
+          </span>
+        );
+      case 'finished':
+        return (
+          <span className="px-2.5 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-500 text-[10px] font-bold uppercase tracking-wider">
+            FT
+          </span>
+        );
+      default:
+        return (
+          <span className="px-2.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-600 text-[10px] font-bold uppercase tracking-wider">
+            Upcoming
+          </span>
+        );
     }
+  };
+
+  if (matches.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 bg-white border border-gray-200 border-dashed rounded-xl text-gray-400">
+        <Calendar className="w-12 h-12 mb-3 opacity-20" />
+        <p className="font-medium">No matches scheduled.</p>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      
-      {/* Header Section */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-        <div>
-           <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2">
-             <Calendar className="text-blue-600" /> Match Fixtures
-           </h3>
-           <p className="text-gray-500 text-sm mt-1">
-             {matches?.length || 0} matches scheduled
-           </p>
-        </div>
+    <div className="space-y-4">
+      {matches.map((match) => {
+        const { month, day, time, weekday } = getDateParts(match.match_time);
         
-        {isOrganizer && (
-          <button 
-            onClick={handleGenerate}
-            disabled={generating}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm text-white transition-all shadow-md
-              ${generating 
-                ? 'bg-gray-400 cursor-not-allowed' 
-                : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg transform active:scale-95'
-              }`}
+        return (
+          <div 
+            key={match.id} 
+            className="group relative bg-white border border-gray-200 rounded-xl shadow-sm hover:shadow-md hover:border-indigo-200 transition-all duration-300 overflow-hidden"
           >
-            <RefreshCw size={16} className={generating ? 'animate-spin' : ''} />
-            {generating ? 'Generating Brackets...' : 'Generate Schedule'}
-          </button>
-        )}
-      </div>
+            {/* --- 1. FULL CARD LINK (The Clickable Layer) --- */}
+            <Link href={`/match/${match.id}`} className="absolute inset-0 z-0">
+              <span className="sr-only">View Match</span>
+            </Link>
 
-      {/* Matches Grid */}
-      {matches && matches.length > 0 ? (
-        <div className="grid md:grid-cols-2 gap-4">
-          {matches.map((match, index) => {
-            const { date, time } = formatTime(match.date, match.time)
-            
-            return (
-              <div key={match.id || index} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow group">
+            <div className="flex flex-col md:flex-row items-stretch">
+              
+              {/* --- 2. DATE COLUMN (Left) --- */}
+              <div className="flex md:flex-col items-center justify-between md:justify-center p-4 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-100 md:w-24 text-center">
+                 <div className="flex items-center gap-2 md:block">
+                    <span className="text-xs font-bold text-gray-400 uppercase block tracking-wider">{month}</span>
+                    <span className="text-2xl font-black text-gray-800 block leading-none md:mt-1">{day}</span>
+                 </div>
+                 <div className="flex items-center gap-2 md:block md:mt-2">
+                    <span className="text-xs font-medium text-indigo-600 block">{weekday}</span>
+                    <span className="text-xs text-gray-500 block">{time}</span>
+                 </div>
+              </div>
+
+              {/* --- 3. MATCH INFO (Center) --- */}
+              <div className="flex-1 p-4 md:p-6 flex flex-col justify-center relative z-10 pointer-events-none"> 
+                {/* pointer-events-none on container allows clicks to pass through to the Link behind it, 
+                    but we re-enable pointer-events on buttons */}
                 
-                {/* Match Context Bar */}
-                <div className="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center text-xs font-bold text-gray-500 uppercase tracking-wide">
-                   <span className="flex items-center gap-1">
-                      <Clock size={12} /> {date} • {time}
-                   </span>
-                   <span className="flex items-center gap-1 text-blue-600">
-                      <MapPin size={12} /> {match.venue?.name || 'Main Field'}
-                   </span>
+                {/* Status & Venue Top Bar */}
+                <div className="flex justify-between items-center mb-4">
+                   {getStatusBadge(match.status)}
+                   <div className="flex items-center gap-1 text-[10px] font-bold text-gray-400 uppercase tracking-wide">
+                      <MapPin size={12} /> {match.venue || 'Main Stadium'}
+                   </div>
                 </div>
 
-                {/* Match Card Body */}
-                <div className="p-5 flex items-center justify-between relative">
+                {/* Teams Row */}
+                <div className="flex items-center justify-between gap-4">
                    
                    {/* Team A */}
-                   <div className="flex-1 flex flex-col items-center text-center gap-2">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-100 to-blue-50 text-blue-700 flex items-center justify-center font-black text-sm border-2 border-white shadow-sm ring-1 ring-gray-100">
-                         {getInitials(match.team_a?.name)}
-                      </div>
-                      <span className="font-bold text-gray-900 text-sm leading-tight line-clamp-2">
+                   <div className="flex-1 flex items-center justify-end gap-3 text-right">
+                      <span className="font-bold text-gray-900 text-sm md:text-lg leading-tight">
                         {match.team_a?.name || 'TBD'}
                       </span>
+                      <div className="w-10 h-10 md:w-12 md:h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center font-bold text-sm shadow-inner border border-indigo-100 flex-shrink-0">
+                         {match.team_a?.name?.[0] || 'A'}
+                      </div>
                    </div>
 
                    {/* VS / Score */}
-                   <div className="px-4 flex flex-col items-center justify-center z-10">
-                      {match.status === 'finished' ? (
-                         <div className="text-2xl font-black text-gray-900 tracking-tighter bg-gray-100 px-3 py-1 rounded-lg">
-                            {match.score_a} - {match.score_b}
-                         </div>
+                   <div className="flex flex-col items-center justify-center min-w-[60px] md:min-w-[80px]">
+                      {match.status === 'scheduled' ? (
+                        <span className="text-2xl font-black text-gray-200 italic">VS</span>
                       ) : (
-                         <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[10px] font-black text-gray-400">
-                            VS
-                         </div>
+                        <div className="bg-gray-900 text-white px-3 py-1 rounded-lg font-mono font-bold text-lg md:text-xl shadow-sm tracking-widest">
+                           {match.score_a}-{match.score_b}
+                        </div>
                       )}
-                      <span className={`mt-2 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                        match.status === 'live' ? 'bg-red-50 text-red-600 border-red-100 animate-pulse' : 'text-gray-400 border-transparent'
-                      }`}>
-                        {match.status === 'live' ? 'LIVE' : match.round || 'League Match'}
-                      </span>
                    </div>
 
                    {/* Team B */}
-                   <div className="flex-1 flex flex-col items-center text-center gap-2">
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-100 to-red-50 text-red-700 flex items-center justify-center font-black text-sm border-2 border-white shadow-sm ring-1 ring-gray-100">
-                         {getInitials(match.team_b?.name)}
+                   <div className="flex-1 flex items-center justify-start gap-3 text-left">
+                      <div className="w-10 h-10 md:w-12 md:h-12 bg-gray-100 text-gray-600 rounded-full flex items-center justify-center font-bold text-sm shadow-inner border border-gray-200 flex-shrink-0">
+                         {match.team_b?.name?.[0] || 'B'}
                       </div>
-                      <span className="font-bold text-gray-900 text-sm leading-tight line-clamp-2">
+                      <span className="font-bold text-gray-900 text-sm md:text-lg leading-tight">
                         {match.team_b?.name || 'TBD'}
                       </span>
                    </div>
 
                 </div>
-
-                {/* Organizer Actions (Optional) */}
-                {isOrganizer && (
-                   <div className="border-t border-gray-100 p-2 bg-gray-50 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="text-xs font-bold text-blue-600 hover:underline">Edit Match Details</button>
-                   </div>
-                )}
               </div>
-            )
-          })}
-        </div>
-      ) : (
-        /* Empty State */
-        <div className="bg-white rounded-xl border-2 border-dashed border-gray-300 p-12 text-center">
-           <div className="w-16 h-16 bg-blue-50 text-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Trophy size={32} />
-           </div>
-           <h3 className="text-lg font-bold text-gray-900 mb-2">No Matches Scheduled</h3>
-           <p className="text-gray-500 max-w-md mx-auto mb-6">
-             {isOrganizer 
-               ? "Ready to kick off? Make sure teams are registered, then click 'Generate Schedule' above." 
-               : "The organizer hasn't published the fixtures yet. Check back soon!"}
-           </p>
-           {isOrganizer && (
-             <button onClick={handleGenerate} className="text-blue-600 font-bold text-sm hover:underline">
-                Generate First Round Now &rarr;
-             </button>
-           )}
-        </div>
-      )}
+
+              {/* --- 4. ACTION COLUMN (Right) --- */}
+              <div className="flex md:flex-col items-center justify-center p-4 border-t md:border-t-0 md:border-l border-gray-100 md:w-32 bg-white gap-2 relative z-20">
+                 {/* Z-20 and pointer-events-auto ensures these buttons work independently of the card link */}
+                 
+                 {/* Hover Chevron (Visual hint) */}
+                 <div className="hidden md:block absolute right-4 text-gray-300 group-hover:text-indigo-500 group-hover:translate-x-1 transition-all duration-300">
+                    <ChevronRight size={24} />
+                 </div>
+
+                 {/* Organizer Manage Button */}
+                 {isOrganizer && (
+                    <Link 
+                      href={`/match/${match.id}/operator`}
+                      className="pointer-events-auto w-full md:w-auto px-4 py-2 bg-white border border-gray-200 hover:border-indigo-300 hover:text-indigo-600 text-gray-600 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-sm z-30"
+                    >
+                       <Edit3 size={14} /> Manage
+                    </Link>
+                 )}
+              </div>
+
+            </div>
+          </div>
+        );
+      })}
     </div>
-  )
+  );
 }

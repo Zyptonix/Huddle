@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MessageCircle, Send, Search, User, MoreVertical, ArrowLeft, Check, CheckCheck, Users, Loader } from 'lucide-react';
 
-export default function ChatSystem({ currentUser }) {
+// UPDATED: Added initialChatId to props
+export default function ChatSystem({ currentUser, initialChatId }) {
   const [conversations, setConversations] = useState([]);
   const [selectedConversation, setSelectedConversation] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -18,6 +19,19 @@ export default function ChatSystem({ currentUser }) {
     fetchConversations();
     fetchAllUsers();
   }, []);
+
+  // --- NEW: AUTO-SELECT CONVERSATION ---
+  // This listens for changes in 'conversations' or 'initialChatId'.
+  // If a match is found, it automatically sets it as selected.
+  useEffect(() => {
+    if (initialChatId && conversations.length > 0) {
+      const targetChat = conversations.find(c => c.id === initialChatId);
+      if (targetChat) {
+        setSelectedConversation(targetChat);
+      }
+    }
+  }, [conversations, initialChatId]);
+  // -------------------------------------
 
   useEffect(() => {
     if (selectedConversation) {
@@ -126,20 +140,16 @@ export default function ChatSystem({ currentUser }) {
     }
   };
 
-  // --- FIX START: Safe Filtering ---
   const filteredConversations = conversations.filter(conv => {
-    // Safely check if otherUser and username exist before calling toLowerCase
     const username = conv?.otherUser?.username || '';
     return username.toLowerCase().includes((searchTerm || '').toLowerCase());
   });
 
   const filteredUsers = allUsers.filter(user => {
-    // Safely check if username exists
     const username = user?.username || '';
     return username.toLowerCase().includes((searchTerm || '').toLowerCase()) &&
     !conversations.some(conv => conv.otherUser?.id === user.id);
   });
-  // --- FIX END ---
 
   const formatTime = (timestamp) => {
     const date = new Date(timestamp);

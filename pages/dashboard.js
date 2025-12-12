@@ -1,18 +1,13 @@
-import { useEffect, useMemo } from 'react' // Import useMemo
+import { useEffect, useMemo } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useRouter } from 'next/router'
 import Layout from '../components/ui/Layout'
-import { Shield, Users, User, Heart } from 'lucide-react' // Import necessary icons
+import { Shield, Users, User, Heart } from 'lucide-react'
 
-// Action Cards
-import TeamPortalCard from '../components/dashboards/TeamPortalCard'
-import TournamentPortalCard from '../components/dashboards/TournamentPortalCard'
-import PlayerAvailabilityCard from '../components/dashboards/PlayerAvailabilityCard'
-import MessagesPortalCard from '../components/dashboards/MessagesPortalCard'
+// Action Cards and Loading (Keep your imports)
 import DashboardView from '../components/dashboards/DashboardView'
 import Loading from '../components/ui/Loading'
 
-// Helper configuration (similar to your DashboardView logic, but simplified for the banner)
 const roleThemeConfig = {
     organizer: { 
         gradient: 'from-blue-600 to-indigo-700', 
@@ -32,23 +27,17 @@ const roleThemeConfig = {
     }
 }
 
-// NOTE: You need to define these placeholder components if they don't exist
-const OrganizerDashboard = () => <div>Organizer Content</div>
-const CoachDashboard = () => <div>Coach Content</div>
-const PlayerDashboard = () => <div>Player Content</div>
-const FanDashboard = () => <div>Fan Content</div>
-
-
 export default function Dashboard() {
     const { user, profile, loading } = useAuth()
     const router = useRouter()
 
-    // Debug Log
-    console.log('[Dashboard Debug] Render:', { 
-        loading, 
-        hasUser: !!user, 
-        hasProfile: !!profile 
-    })
+    // --- FIX: Hooks must be at the top level ---
+    // We moved useMemo here, BEFORE any 'return' statements.
+    // We use optional chaining (profile?.role) because profile might be null initially.
+    const theme = useMemo(() => {
+        const role = profile?.role || 'fan'
+        return roleThemeConfig[role] || roleThemeConfig['fan']
+    }, [profile]) // Depend on profile object
 
     useEffect(() => {
         if (!loading && !user) {
@@ -56,6 +45,8 @@ export default function Dashboard() {
             router.push('/login')
         }
     }, [user, loading, router])
+
+    // --- NOW it is safe to use conditional returns ---
 
     if (loading) {
         return <Loading message="Authenticating..." />
@@ -65,22 +56,13 @@ export default function Dashboard() {
 
     // If user exists but no profile, show specific loading state
     if (user && !profile) {
-        console.log('[Dashboard Debug] User exists but Profile missing. Showing setup loader.')
         return <Loading message="Setting up your profile..." />
     }
     
-    // --- THE FIX: Define 'theme' using the profile's role ---
-    // Use useMemo to ensure this only recalculates if the role changes
-    const theme = useMemo(() => {
-        const role = profile.role || 'fan'
-        return roleThemeConfig[role] || roleThemeConfig['fan']
-    }, [profile.role])
-
-
     return (
         <Layout title="Dashboard - Huddle">
-            {/* The existing DashboardView (which has the full stats and quote logic) */}
-            <DashboardView user={user} profile={profile} />
+            {/* You can pass the 'theme' prop to DashboardView if it needs it */}
+            <DashboardView user={user} profile={profile} theme={theme} />
         </Layout>
     )
 }

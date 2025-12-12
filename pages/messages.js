@@ -6,6 +6,9 @@ import ChatSystem from '../components/chat/ChatSystem'
 export default function MessagesPage() {
   const { user, profile, loading } = useAuth()
   const router = useRouter()
+  
+  // Get the conversationId from the URL (e.g. /messages?conversationId=123)
+  const { conversationId } = router.query
 
   useEffect(() => {
     if (!loading && !user) {
@@ -15,5 +18,11 @@ export default function MessagesPage() {
 
   if (loading || !user || !profile) return null
 
-  return <ChatSystem currentUser={profile} />
+  // Pass it to the ChatSystem
+  return (
+    <ChatSystem 
+      currentUser={profile} 
+      initialChatId={conversationId} 
+    />
+  )
 }
