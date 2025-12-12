@@ -1,71 +1,93 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import { supabase } from '../lib/supabaseClient'
-import Loading from '../components/ui/Loading' // <-- Import Loading Atom
+import { createPagesBrowserClient } from '@supabase/auth-helpers-nextjs' // Direct import
+import Loading from '../components/ui/Loading'
 
 const AuthContext = createContext()
 
 export function AuthProvider({ children }) {
+  // 1. Initialize the client here to ensure it syncs with the latest cookies
+  const [supabase] = useState(() => createPagesBrowserClient())
+  
   const [user, setUser] = useState(null)
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Get the initial session
-    const getSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession()
-        setUser(session?.user ?? null)
+    let mounted = true
 
+    async function initAuth() {
+      try {
+        // 2. Use the local 'supabase' instance
+        const { data: { session }, error } = await supabase.auth.getSession()
+        
         if (session?.user) {
+          if (mounted) setUser(session.user)
           await fetchProfile(session.user)
+        } else {
+          if (mounted) setLoading(false)
         }
       } catch (error) {
         console.error("Auth Init Error:", error)
-      } finally {
-        setLoading(false) // <-- CRITICAL: Always stop loading
+        if (mounted) setLoading(false)
       }
     }
-    getSession()
 
-    // Listen for auth state changes (login/logout)
+    initAuth()
+
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setUser(session?.user ?? null)
-        if (session?.user) {
-          await fetchProfile(session.user)
-        } else {
-          setProfile(null)
+        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+           if (session?.user) {
+             setUser(session.user)
+             await fetchProfile(session.user)
+           }
+        } else if (event === 'SIGNED_OUT') {
+           setUser(null)
+           setProfile(null)
+           setLoading(false)
         }
-        setLoading(false)
       }
     )
 
     return () => {
+      mounted = false
       authListener.subscription.unsubscribe()
     }
-  }, [])
+  }, [supabase]) // Add supabase to dependency array
 
-  // Helper to get the profile data
-  const fetchProfile = async (user) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select(`username, role, phone, address, height, avatar_url`)
-        .eq('id', user.id)
-        .maybeSingle()
+  const fetchProfile = async (currentUser) => {
+    let retries = 5
+    let profileData = null
 
-      if (error) throw error
-      setProfile(data)
-    } catch (error) {
-      console.error('Error fetching profile:', error.message)
+    while (retries > 0 && !profileData) {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', currentUser.id)
+          .maybeSingle()
+
+        if (data) {
+          profileData = data
+        } else {
+          // Profile not created yet, wait 1s
+          retries--
+          if (retries > 0) await new Promise(r => setTimeout(r, 1000))
+        }
+      } catch (err) {
+        retries--
+        if (retries > 0) await new Promise(r => setTimeout(r, 1000))
+      }
     }
+
+    setProfile(profileData)
+    setLoading(false)
   }
 
-  const value = { user, profile, loading }
+  const value = { user, profile, loading, supabase } // Expose supabase to children if needed
 
-  // --- FIX: Show Spinner instead of White Screen ---
   if (loading) {
-    return <Loading message="Initializing Huddle..." />
+    return <Loading message="Initializing..." />
   }
 
   return (
