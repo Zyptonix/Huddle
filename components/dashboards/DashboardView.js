@@ -14,7 +14,7 @@ export default function DashboardView({ user, profile }) {
   const [loading, setLoading] = useState(true)
   const [quote, setQuote] = useState({ text: "", author: "" })
 
-  // --- 1. QUOTES DATABASE ---
+  // --- QUOTES ---
   const quotes = {
     organizer: [
       { text: "The key is not the will to win. Everybody has that. It is the will to prepare to win that is important.", author: "Bobby Knight" },
@@ -42,12 +42,11 @@ export default function DashboardView({ user, profile }) {
     ]
   }
 
-  // --- 2. CONFIGURATION BASED ON ROLE ---
+  // --- ROLE CONFIG ---
   const roleConfig = {
     organizer: {
-      theme: { from: 'from-blue-600', to: 'to-indigo-700', icon: Shield, color: 'blue' },
+      theme: { from: 'from-blue-600', to: 'to-indigo-700', icon: Shield },
       title: 'Organizer Workspace',
-      description: 'Manage your leagues, track results, and oversee venues.',
       stats: [
         { label: 'Total Events', value: data.tournaments.length, icon: Trophy, color: 'blue' },
         { label: 'Active', value: data.tournaments.filter(t => t.status === 'active').length, icon: Activity, color: 'green' },
@@ -55,9 +54,8 @@ export default function DashboardView({ user, profile }) {
       ]
     },
     coach: {
-      theme: { from: 'from-green-600', to: 'to-emerald-700', icon: Users, color: 'green' },
+      theme: { from: 'from-green-600', to: 'to-emerald-700', icon: Users },
       title: "Coach's Locker Room",
-      description: 'Prepare your squads, manage rosters, and plan your next victory.',
       stats: [
         { label: 'My Teams', value: data.teams.length, icon: Activity, color: 'blue' },
         { label: 'Active Tournaments', value: data.tournaments.length, icon: Trophy, color: 'yellow' },
@@ -65,9 +63,8 @@ export default function DashboardView({ user, profile }) {
       ]
     },
     player: {
-      theme: { from: 'from-yellow-500', to: 'to-amber-600', icon: User, color: 'yellow' },
+      theme: { from: 'from-yellow-500', to: 'to-amber-600', icon: User },
       title: 'Player Hub',
-      description: 'Track your performance, view your schedule, and stay connected.',
       stats: [
         { label: 'Team Memberships', value: data.teams.length, icon: Activity, color: 'blue' },
         { label: 'Tournaments', value: data.tournaments.length, icon: Trophy, color: 'green' },
@@ -75,9 +72,8 @@ export default function DashboardView({ user, profile }) {
       ]
     },
     fan: {
-      theme: { from: 'from-red-500', to: 'to-rose-600', icon: Heart, color: 'red' },
+      theme: { from: 'from-red-500', to: 'to-rose-600', icon: Heart },
       title: 'Fan Zone',
-      description: 'Follow your favorite teams, catch live scores, and never miss a match.',
       stats: [
         { label: 'Live Matches', value: '0', icon: TrendingUp, color: 'red' },
         { label: 'Tournaments', value: '-', icon: Trophy, color: 'blue' },
@@ -86,16 +82,14 @@ export default function DashboardView({ user, profile }) {
     }
   }
 
-  // Safely extract theme
   const config = roleConfig[profile.role] || roleConfig['fan']
   const { theme } = config 
   const BannerIcon = theme.icon
 
-  // --- 3. DATA FETCHING ---
+  // --- DATA FETCHING ---
   useEffect(() => {
     const roleQuotes = quotes[profile.role] || quotes['fan']
-    const randomQuote = roleQuotes[Math.floor(Math.random() * roleQuotes.length)]
-    setQuote(randomQuote)
+    setQuote(roleQuotes[Math.floor(Math.random() * roleQuotes.length)])
 
     async function fetchData() {
       try {
@@ -139,122 +133,185 @@ export default function DashboardView({ user, profile }) {
       
       {/* --- BANNER --- */}
       <div className={`relative rounded-2xl shadow-xl overflow-hidden bg-gradient-to-r ${theme.from} ${theme.to} text-white`}>
-        <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="relative z-10 p-8 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div>
             <div className="flex items-center gap-3 mb-3 opacity-90">
               <BannerIcon size={24} />
               <span className="font-bold uppercase tracking-wider text-sm">{config.title}</span>
             </div>
-            
-            <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight mb-2 leading-tight italic">
-              "{quote.text}"
-            </h2>
+            <h2 className="text-3xl md:text-4xl font-extrabold mb-2 italic">"{quote.text}"</h2>
             <p className="text-lg opacity-80 font-medium">— {quote.author}</p>
-            
           </div>
+
           <div className="text-left md:text-right shrink-0">
-             <p className="text-xs uppercase tracking-wider opacity-80 font-bold">Today is</p>
-             <p className="text-2xl font-bold">{new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}</p>
-             <p className="text-sm opacity-90 mt-1">Hello, {profile.username}!</p>
+            <p className="text-xs uppercase tracking-wider opacity-80 font-bold">Today is</p>
+            <p className="text-2xl font-bold">
+              {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+            </p>
+            <p className="text-sm opacity-90 mt-1">Hello, {profile.username}!</p>
           </div>
         </div>
       </div>
 
-      {/* --- STATS GRID --- */}
+      {/* --- STATS --- */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {config.stats.map((stat, i) => (
           <StatCard key={i} label={stat.label} value={stat.value} icon={stat.icon} color={stat.color} />
         ))}
       </div>
 
-      {/* --- MAIN CONTENT LAYOUT --- */}
+      {/* --- MAIN CONTENT --- */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-        
-        {/* === LEFT COLUMN: FEEDS & LISTS (2/3 WIDTH) === */}
+
+        {/* LEFT COLUMN */}
         <div className="lg:col-span-2 space-y-8">
           {profile.role === 'organizer' && (
-             <DashboardSection title="Recent Tournaments" icon={Trophy} link="/tournament_portal" linkText="View All" items={data.tournaments} emptyText="No tournaments created yet." type="tournament" />
+            <DashboardSection 
+              title="Recent Tournaments" 
+              icon={Trophy} 
+              link="/tournament_portal" 
+              linkText="View All" 
+              items={data.tournaments} 
+              emptyText="No tournaments created yet." 
+              type="tournament" 
+            />
           )}
+
           {(profile.role === 'coach' || profile.role === 'player') && (
             <>
-              <DashboardSection title="My Teams" icon={Activity} link="/team_portal" linkText={profile.role === 'coach' ? "Manage" : "View All"} items={data.teams} emptyText="No teams yet." type="team" />
-              <DashboardSection title="Active Tournaments" icon={Trophy} link="/tournament_portal" linkText="Browse" items={data.tournaments} emptyText="No active tournaments." type="tournament" />
+              <DashboardSection 
+                title="My Teams" 
+                icon={Activity} 
+                link="/team_portal" 
+                linkText={profile.role === 'coach' ? "Manage" : "View All"} 
+                items={data.teams} 
+                emptyText="No teams yet." 
+                type="team" 
+              />
+
+              <DashboardSection 
+                title="Active Tournaments" 
+                icon={Trophy} 
+                link="/tournament_portal"
+                linkText="Browse" 
+                items={data.tournaments} 
+                emptyText="No active tournaments."
+                type="tournament"
+              />
             </>
           )}
+
           {profile.role === 'fan' && (
-             <div className="bg-white p-8 border border-gray-200 rounded-xl shadow-sm text-center">
-                <Trophy className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-bold text-gray-900 mb-2">Explore Tournaments</h3>
-                <p className="text-gray-500 mb-6">Find active leagues and knockout cups happening now.</p>
-                <Link href="/tournament_portal" className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-full font-bold hover:bg-blue-700 transition-colors gap-2">
-                   <Search size={18} /> Browse All
-                </Link>
-             </div>
+            <div className="bg-white p-8 border rounded-xl shadow-sm text-center">
+              <Trophy className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Explore Tournaments</h3>
+              <p className="text-gray-500 mb-6">Find active leagues and knockout cups happening now.</p>
+              <Link href="/tournament_portal" className="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-full font-bold hover:bg-blue-700 transition-colors gap-2">
+                <Search size={18} /> Browse All
+              </Link>
+            </div>
           )}
         </div>
 
-        {/* === RIGHT COLUMN: TOOLS & WIDGETS (1/3 WIDTH) === */}
-        {/* Increased vertical spacing for better separation of cards */}
+        {/* RIGHT COLUMN */}
         <div className="space-y-6">
-            
-            {/* 1. PRIORITY STATUS WIDGETS */}
-            {/* These should be at the top for easy access */}
-            
-            {/* Player Availability (Coach Only) */}
-            {profile.role === 'coach' && <PlayerAvailabilityCard />}
 
-            {/* Messages (Everyone) */}
-            <MessagesPortalCard />
+          {/* Priority Widgets */}
+          {profile.role === 'coach' && <PlayerAvailabilityCard />}
+          <MessagesPortalCard />
 
-            {/* 2. ROLE-SPECIFIC TOOLS */}
-            
-            {/* Venue Manager (Organizer) */}
-            {profile.role === 'organizer' && (
-              <Link href="/tournament_portal" className="block p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-purple-400 hover:shadow-md transition-all group">
-                <div className="flex items-center gap-4 mb-3">
-                  <div className="p-3 bg-purple-50 rounded-full text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-colors"><MapPin size={24} /></div>
-                  <h3 className="font-bold text-gray-900">Venue Manager</h3>
-                </div>
-                <p className="text-sm text-gray-500">Add and manage stadiums for your events.</p>
-              </Link>
-            )}
-
-            {/* Tactics Board (Coach) */}
-            {profile.role === 'coach' && (
-              <Link href="/tactics/new" className="block p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-indigo-400 hover:shadow-md transition-all group">
-                <div className="flex items-center gap-4 mb-3">
-                  <div className="p-3 bg-indigo-50 rounded-full text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors"><Swords size={24} /></div>
-                  <h3 className="font-bold text-gray-900">Tactics Board</h3>
-                </div>
-                <p className="text-sm text-gray-500">Draw formations and strategies.</p>
-              </Link>
-            )}
-            
-            {/* Team Portal (Coach & Player) */}
-            {(profile.role === 'coach' || profile.role === 'player') && (
-              <Link href="/team_portal" className="block p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-blue-400 hover:shadow-md transition-all group">
-                <div className="flex items-center gap-4 mb-3">
-                   <div className="p-3 bg-blue-50 rounded-full text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors"><Users size={24} /></div>
-                   <h3 className="font-bold text-gray-900">Team Portal</h3>
-                </div>
-                <p className="text-sm text-gray-500">Manage rosters & memberships.</p>
-              </Link>
-            )}
-            
-            {/* 3. GENERAL NAVIGATION */}
-            
-            {/* Tournaments (Everyone) */}
-            <Link href="/tournament_portal" className="block p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-yellow-400 hover:shadow-md transition-all group">
+          {/* Venue Manager (Organizer) */}
+          {profile.role === 'organizer' && (
+            <Link href="/tournament_portal" className="block p-6 bg-white border rounded-xl shadow-sm hover:border-purple-400 hover:shadow-md transition-all group">
               <div className="flex items-center gap-4 mb-3">
-                 <div className="p-3 bg-yellow-50 rounded-full text-yellow-600 group-hover:bg-yellow-600 group-hover:text-white transition-colors"><Trophy size={24} /></div>
-                 <h3 className="font-bold text-gray-900">Tournaments</h3>
+                <div className="p-3 bg-purple-50 rounded-full text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                  <MapPin size={24} />
+                </div>
+                <h3 className="font-bold text-gray-900">Venue Manager</h3>
               </div>
-              <p className="text-sm text-gray-500">{profile.role === 'organizer' ? 'Manage your events' : 'Browse & Register'}</p>
+              <p className="text-sm text-gray-500">Add and manage stadiums for your events.</p>
             </Link>
+          )}
+
+          {/* Tactics Board (Coach) */}
+          {profile.role === 'coach' && (
+            <Link href="/tactics/new" className="block p-6 bg-white border rounded-xl shadow-sm hover:border-indigo-400 hover:shadow-md transition-all group">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="p-3 bg-indigo-50 rounded-full text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                  <Swords size={24} />
+                </div>
+                <h3 className="font-bold text-gray-900">Tactics Board</h3>
+              </div>
+              <p className="text-sm text-gray-500">Draw formations and strategies.</p>
+            </Link>
+          )}
+
+          {/* ⭐ Training Planner (Coach Only) */}
+          {profile.role === 'coach' && (
+            <Link href="/training" className="block p-6 bg-white border rounded-xl shadow-sm hover:border-green-400 hover:shadow-md transition-all group">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="p-3 bg-green-50 rounded-full text-green-600 group-hover:bg-green-600 group-hover:text-white transition-colors">
+                  <ClipboardList size={24} />
+                </div>
+                <h3 className="font-bold text-gray-900">Training Planner</h3>
+              </div>
+              <p className="text-sm text-gray-500">Create and manage training sessions.</p>
+            </Link>
+          )}
+
+          {/* Team Portal (Coach & Player) */}
+          {(profile.role === 'coach' || profile.role === 'player') && (
+            <Link href="/team_portal" className="block p-6 bg-white border rounded-xl shadow-sm hover:border-blue-400 hover:shadow-md transition-all group">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="p-3 bg-blue-50 rounded-full text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                  <Users size={24} />
+                </div>
+                <h3 className="font-bold text-gray-900">Team Portal</h3>
+              </div>
+              <p className="text-sm text-gray-500">Manage rosters & memberships.</p>
+            </Link>
+          )}
+
+          {/* ⭐ Merch Shop (Fan Only) */}
+          {profile.role === 'fan' && (
+            <Link href="/merch" className="block p-6 bg-white border rounded-xl shadow-sm hover:border-red-400 hover:shadow-md transition-all group">
+              <div className="flex items-center gap-4 mb-3">
+                <div className="p-3 bg-red-50 rounded-full text-red-600 group-hover:bg-red-600 group-hover:text-white transition-colors">
+                  <Heart size={24} />
+                </div>
+                <h3 className="font-bold text-gray-900">Merch Shop</h3>
+              </div>
+              <p className="text-sm text-gray-500">Buy official merchandise.</p>
+            </Link>
+          )}
+
+          {/* ⭐ Leaderboards (All Users) */}
+          <Link href="/leaderboards" className="block p-6 bg-white border rounded-xl shadow-sm hover:border-purple-400 hover:shadow-md transition-all group">
+            <div className="flex items-center gap-4 mb-3">
+              <div className="p-3 bg-purple-50 rounded-full text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-colors">
+                <TrendingUp size={24} />
+              </div>
+              <h3 className="font-bold text-gray-900">Leaderboards</h3>
+            </div>
+            <p className="text-sm text-gray-500">View standings and top scorers.</p>
+          </Link>
+
+          {/* Tournaments (Everyone) */}
+          <Link href="/tournament_portal" className="block p-6 bg-white border rounded-xl shadow-sm hover:border-yellow-400 hover:shadow-md transition-all group">
+            <div className="flex items-center gap-4 mb-3">
+              <div className="p-3 bg-yellow-50 rounded-full text-yellow-600 group-hover:bg-yellow-600 group-hover:text-white transition-colors">
+                <Trophy size={24} />
+              </div>
+              <h3 className="font-bold text-gray-900">Tournaments</h3>
+            </div>
+            <p className="text-sm text-gray-500">
+              {profile.role === 'organizer' ? 'Manage your events' : 'Browse & Register'}
+            </p>
+          </Link>
 
         </div>
       </div>
     </div>
   )
 }
+
