@@ -126,14 +126,20 @@ export default function ChatSystem({ currentUser }) {
     }
   };
 
-  const filteredConversations = conversations.filter(conv =>
-    conv.otherUser.username.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // --- FIX START: Safe Filtering ---
+  const filteredConversations = conversations.filter(conv => {
+    // Safely check if otherUser and username exist before calling toLowerCase
+    const username = conv?.otherUser?.username || '';
+    return username.toLowerCase().includes((searchTerm || '').toLowerCase());
+  });
 
-  const filteredUsers = allUsers.filter(user =>
-    user.username.toLowerCase().includes(searchTerm.toLowerCase()) &&
-    !conversations.some(conv => conv.otherUser.id === user.id)
-  );
+  const filteredUsers = allUsers.filter(user => {
+    // Safely check if username exists
+    const username = user?.username || '';
+    return username.toLowerCase().includes((searchTerm || '').toLowerCase()) &&
+    !conversations.some(conv => conv.otherUser?.id === user.id);
+  });
+  // --- FIX END ---
 
   const formatTime = (timestamp) => {
     const date = new Date(timestamp);
@@ -237,7 +243,7 @@ export default function ChatSystem({ currentUser }) {
                           }`}
                         >
                           <div className="flex items-start gap-3">
-                            {conv.otherUser.avatar_url ? (
+                            {conv.otherUser?.avatar_url ? (
                               <img src={conv.otherUser.avatar_url} alt={conv.otherUser.username} className="w-12 h-12 rounded-full" />
                             ) : (
                               <div className="w-12 h-12 rounded-full bg-indigo-200 flex items-center justify-center">
@@ -246,7 +252,7 @@ export default function ChatSystem({ currentUser }) {
                             )}
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between mb-1">
-                                <p className="font-semibold text-gray-800 truncate">{conv.otherUser.username}</p>
+                                <p className="font-semibold text-gray-800 truncate">{conv.otherUser?.username || 'Unknown User'}</p>
                                 <span className="text-xs text-gray-500">{formatTime(conv.lastMessageTime)}</span>
                               </div>
                               <div className="flex items-center justify-between">
@@ -257,8 +263,8 @@ export default function ChatSystem({ currentUser }) {
                                   </span>
                                 )}
                               </div>
-                              <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-1 ${getRoleBadgeColor(conv.otherUser.role)}`}>
-                                {conv.otherUser.role}
+                              <span className={`inline-block text-xs px-2 py-0.5 rounded-full mt-1 ${getRoleBadgeColor(conv.otherUser?.role)}`}>
+                                {conv.otherUser?.role || 'user'}
                               </span>
                             </div>
                           </div>
@@ -316,7 +322,7 @@ export default function ChatSystem({ currentUser }) {
                       >
                         <ArrowLeft className="w-5 h-5" />
                       </button>
-                      {selectedConversation.otherUser.avatar_url ? (
+                      {selectedConversation.otherUser?.avatar_url ? (
                         <img src={selectedConversation.otherUser.avatar_url} alt={selectedConversation.otherUser.username} className="w-10 h-10 rounded-full" />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-indigo-200 flex items-center justify-center">
@@ -324,9 +330,9 @@ export default function ChatSystem({ currentUser }) {
                         </div>
                       )}
                       <div>
-                        <p className="font-semibold text-gray-800">{selectedConversation.otherUser.username}</p>
-                        <span className={`text-xs px-2 py-0.5 rounded-full ${getRoleBadgeColor(selectedConversation.otherUser.role)}`}>
-                          {selectedConversation.otherUser.role}
+                        <p className="font-semibold text-gray-800">{selectedConversation.otherUser?.username || 'Unknown User'}</p>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${getRoleBadgeColor(selectedConversation.otherUser?.role)}`}>
+                          {selectedConversation.otherUser?.role || 'user'}
                         </span>
                       </div>
                     </div>
@@ -347,7 +353,7 @@ export default function ChatSystem({ currentUser }) {
                           return (
                             <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} items-end gap-2`}>
                               {!isOwn && showAvatar && (
-                                selectedConversation.otherUser.avatar_url ? (
+                                selectedConversation.otherUser?.avatar_url ? (
                                   <img src={selectedConversation.otherUser.avatar_url} alt="" className="w-8 h-8 rounded-full" />
                                 ) : (
                                   <div className="w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">
@@ -398,7 +404,7 @@ export default function ChatSystem({ currentUser }) {
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-                        className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                        className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-black"
                       />
                       <button
                         onClick={sendMessage}

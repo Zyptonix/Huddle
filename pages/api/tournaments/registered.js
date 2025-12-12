@@ -12,15 +12,15 @@ export default async function handler(req, res) {
   if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
   // Find registrations for teams owned by this user
-  // We use !inner to enforce the filter on the joined 'teams' table
+  // FIX: Changed 'coach_id' to 'owner_id' to match your database schema
   const { data, error } = await supabase
     .from('tournament_registrations')
     .select(`
       status,
       tournaments (*),
-      teams!inner (name, coach_id)
+      teams!inner (name, owner_id) 
     `)
-    .eq('teams.coach_id', user.id)
+    .eq('teams.owner_id', user.id) // <--- THIS WAS THE CAUSE OF THE 500 ERROR
 
   if (error) return res.status(500).json({ error: error.message })
 

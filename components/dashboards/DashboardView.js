@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { 
   Shield, Trophy, MapPin, Users, Activity, User, Heart, 
-  Star, TrendingUp, Search, Swords, ClipboardList, Clock, Calendar 
+  Star, TrendingUp, Search, Swords, ClipboardList, Clock 
 } from 'lucide-react'
 import DashboardSection from './DashboardSection'
 import StatCard from '../ui/StatCard'
+import MessagesPortalCard from './MessagesPortalCard'
+import PlayerAvailabilityCard from './PlayerAvailabilityCard'
 
 export default function DashboardView({ user, profile }) {
   const [data, setData] = useState({ teams: [], tournaments: [] })
@@ -84,12 +86,13 @@ export default function DashboardView({ user, profile }) {
     }
   }
 
+  // Safely extract theme
   const config = roleConfig[profile.role] || roleConfig['fan']
-  const BannerIcon = config.theme.icon
+  const { theme } = config 
+  const BannerIcon = theme.icon
 
-  // --- 3. DATA FETCHING & QUOTE SELECTION ---
+  // --- 3. DATA FETCHING ---
   useEffect(() => {
-    // Select a random quote based on role
     const roleQuotes = quotes[profile.role] || quotes['fan']
     const randomQuote = roleQuotes[Math.floor(Math.random() * roleQuotes.length)]
     setQuote(randomQuote)
@@ -133,8 +136,9 @@ export default function DashboardView({ user, profile }) {
 
   return (
     <div className="space-y-8">
-      {/* Banner */}
-      <div className={`relative rounded-2xl shadow-xl overflow-hidden bg-gradient-to-r ${config.theme.from} ${config.theme.to} text-white`}>
+      
+      {/* --- BANNER --- */}
+      <div className={`relative rounded-2xl shadow-xl overflow-hidden bg-gradient-to-r ${theme.from} ${theme.to} text-white`}>
         <div className="absolute top-0 right-0 -mr-10 -mt-10 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="relative z-10 p-8 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div>
@@ -157,15 +161,17 @@ export default function DashboardView({ user, profile }) {
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* --- STATS GRID --- */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {config.stats.map((stat, i) => (
           <StatCard key={i} label={stat.label} value={stat.value} icon={stat.icon} color={stat.color} />
         ))}
       </div>
 
-      {/* Main Content Grid */}
+      {/* --- MAIN CONTENT LAYOUT --- */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+        
+        {/* === LEFT COLUMN: FEEDS & LISTS (2/3 WIDTH) === */}
         <div className="lg:col-span-2 space-y-8">
           {profile.role === 'organizer' && (
              <DashboardSection title="Recent Tournaments" icon={Trophy} link="/tournament_portal" linkText="View All" items={data.tournaments} emptyText="No tournaments created yet." type="tournament" />
@@ -188,8 +194,23 @@ export default function DashboardView({ user, profile }) {
           )}
         </div>
 
-        <div className="space-y-4">
-           {profile.role === 'organizer' && (
+        {/* === RIGHT COLUMN: TOOLS & WIDGETS (1/3 WIDTH) === */}
+        {/* Increased vertical spacing for better separation of cards */}
+        <div className="space-y-6">
+            
+            {/* 1. PRIORITY STATUS WIDGETS */}
+            {/* These should be at the top for easy access */}
+            
+            {/* Player Availability (Coach Only) */}
+            {profile.role === 'coach' && <PlayerAvailabilityCard />}
+
+            {/* Messages (Everyone) */}
+            <MessagesPortalCard />
+
+            {/* 2. ROLE-SPECIFIC TOOLS */}
+            
+            {/* Venue Manager (Organizer) */}
+            {profile.role === 'organizer' && (
               <Link href="/tournament_portal" className="block p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-purple-400 hover:shadow-md transition-all group">
                 <div className="flex items-center gap-4 mb-3">
                   <div className="p-3 bg-purple-50 rounded-full text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition-colors"><MapPin size={24} /></div>
@@ -197,9 +218,10 @@ export default function DashboardView({ user, profile }) {
                 </div>
                 <p className="text-sm text-gray-500">Add and manage stadiums for your events.</p>
               </Link>
-           )}
+            )}
 
-           {profile.role === 'coach' && (
+            {/* Tactics Board (Coach) */}
+            {profile.role === 'coach' && (
               <Link href="/tactics/new" className="block p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-indigo-400 hover:shadow-md transition-all group">
                 <div className="flex items-center gap-4 mb-3">
                   <div className="p-3 bg-indigo-50 rounded-full text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors"><Swords size={24} /></div>
@@ -207,9 +229,10 @@ export default function DashboardView({ user, profile }) {
                 </div>
                 <p className="text-sm text-gray-500">Draw formations and strategies.</p>
               </Link>
-           )}
-           
-           {(profile.role === 'coach' || profile.role === 'player') && (
+            )}
+            
+            {/* Team Portal (Coach & Player) */}
+            {(profile.role === 'coach' || profile.role === 'player') && (
               <Link href="/team_portal" className="block p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-blue-400 hover:shadow-md transition-all group">
                 <div className="flex items-center gap-4 mb-3">
                    <div className="p-3 bg-blue-50 rounded-full text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition-colors"><Users size={24} /></div>
@@ -217,15 +240,19 @@ export default function DashboardView({ user, profile }) {
                 </div>
                 <p className="text-sm text-gray-500">Manage rosters & memberships.</p>
               </Link>
-           )}
-           
-           <Link href="/tournament_portal" className="block p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-yellow-400 hover:shadow-md transition-all group">
-             <div className="flex items-center gap-4 mb-3">
-                <div className="p-3 bg-yellow-50 rounded-full text-yellow-600 group-hover:bg-yellow-600 group-hover:text-white transition-colors"><Trophy size={24} /></div>
-                <h3 className="font-bold text-gray-900">Tournaments</h3>
-             </div>
-             <p className="text-sm text-gray-500">{profile.role === 'organizer' ? 'Manage your events' : 'Browse & Register'}</p>
-           </Link>
+            )}
+            
+            {/* 3. GENERAL NAVIGATION */}
+            
+            {/* Tournaments (Everyone) */}
+            <Link href="/tournament_portal" className="block p-6 bg-white border border-gray-200 rounded-xl shadow-sm hover:border-yellow-400 hover:shadow-md transition-all group">
+              <div className="flex items-center gap-4 mb-3">
+                 <div className="p-3 bg-yellow-50 rounded-full text-yellow-600 group-hover:bg-yellow-600 group-hover:text-white transition-colors"><Trophy size={24} /></div>
+                 <h3 className="font-bold text-gray-900">Tournaments</h3>
+              </div>
+              <p className="text-sm text-gray-500">{profile.role === 'organizer' ? 'Manage your events' : 'Browse & Register'}</p>
+            </Link>
+
         </div>
       </div>
     </div>

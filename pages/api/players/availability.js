@@ -12,8 +12,6 @@ export default async function handler(req, res) {
   if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
   const { playerId } = req.query
-
-  // If playerId is provided, check specific player; otherwise check current user
   const targetPlayerId = playerId || user.id
 
   // 1. Get player profile
@@ -28,6 +26,7 @@ export default async function handler(req, res) {
   }
 
   // 2. Check if player is part of any team
+  // FIX: Changed 'player_id' to 'user_id' to match your DB schema
   const { data: teamMemberships, error: membershipError } = await supabase
     .from('team_members')
     .select(`
@@ -37,12 +36,13 @@ export default async function handler(req, res) {
         id,
         name,
         sport,
-        profiles:owner_id (username)
+        owner_id 
       )
     `)
-    .eq('player_id', targetPlayerId)
+    .eq('user_id', targetPlayerId) // <--- THIS WAS THE ERROR (was player_id)
 
   if (membershipError) {
+    console.error("Membership Fetch Error:", membershipError) // Log for debugging
     return res.status(500).json({ error: membershipError.message })
   }
 
@@ -64,11 +64,11 @@ export default async function handler(req, res) {
       reason: isAvailable ? 'Not part of any team' : `Currently in ${teamCount} team${teamCount > 1 ? 's' : ''}`
     },
     teams: teamMemberships ? teamMemberships.map(m => ({
-      id: m.teams.id,
-      name: m.teams.name,
-      sport: m.teams.sport,
-      coach: m.teams.profiles?.username || 'Unknown',
-      joinedAt: m.joined_at
+      id: m.teams?.id,
+      name: m.teams?.name,
+      sport: m.teams?.sport,
+      // Note: joined_at might not exist in your schema, using created_at from team_members
+      joinedAt: m.created_at 
     })) : [],
     teamCount
   }

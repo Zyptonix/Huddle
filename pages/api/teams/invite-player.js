@@ -27,26 +27,31 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing required fields' })
   }
 
+  // Verify ownership of the team
+  // FIX: Changed 'coach_id' to 'owner_id'
   const { data: team } = await supabase
     .from('teams')
     .select('id')
     .eq('id', teamId)
-    .eq('coach_id', user.id)
+    .eq('owner_id', user.id) // <--- THIS WAS THE CAUSE OF THE 403 ERROR
     .single()
 
   if (!team) {
     return res.status(403).json({ error: 'You do not own this team.' })
   }
 
+  // Check if player is already in a team (Double check)
+  // FIX: Ensure we check 'user_id' not 'player_id' if your schema uses user_id for members
   const { data: existingMemberships } = await supabase
     .from('team_members')
     .select('id')
-    .eq('player_id', playerId)
+    .eq('user_id', playerId) // Changed to user_id to be safe, matching previous fixes
 
   if (existingMemberships && existingMemberships.length > 0) {
     return res.status(400).json({ error: 'Player is already in a team and unavailable.' })
   }
 
+  // --- Conversation Logic ---
   const { data: existingConversation } = await supabase
     .from('conversations')
     .select('id')

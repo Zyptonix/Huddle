@@ -11,9 +11,9 @@ export default async function handler(req, res) {
 
   if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
-  const { sport } = req.query // Optional filter by sport
+  const { sport } = req.query 
 
-  // 1. Get all players (profiles with role 'player')
+  // 1. Get all players
   let query = supabase
     .from('profiles')
     .select('id, username, role, avatar_url, height, created_at')
@@ -26,26 +26,32 @@ export default async function handler(req, res) {
   }
 
   // 2. Get all team memberships
+  // FIX: Changed 'player_id' to 'user_id' to match your DB schema
   const { data: allMemberships, error: membershipsError } = await supabase
     .from('team_members')
-    .select('player_id, teams(sport)')
+    .select('user_id, teams(sport)') 
 
   if (membershipsError) {
+    // This was causing the 500 error before
     return res.status(500).json({ error: membershipsError.message })
   }
 
   // 3. Create a map of player IDs who are in teams
   const playersInTeams = new Set()
-  const playerSports = {} // Map player_id to sports they're playing
+  const playerSports = {} 
 
   if (allMemberships) {
     allMemberships.forEach(membership => {
-      playersInTeams.add(membership.player_id)
-      if (!playerSports[membership.player_id]) {
-        playerSports[membership.player_id] = []
+      // FIX: Use 'user_id' here too
+      const memberId = membership.user_id 
+      
+      playersInTeams.add(memberId)
+      
+      if (!playerSports[memberId]) {
+        playerSports[memberId] = []
       }
       if (membership.teams?.sport) {
-        playerSports[membership.player_id].push(membership.teams.sport)
+        playerSports[memberId].push(membership.teams.sport)
       }
     })
   }
@@ -61,11 +67,14 @@ export default async function handler(req, res) {
       sports: [...new Set(playerSports[player.id] || [])]
     }))
 
-  // 6. Apply sport filter if provided
+  // 6. Apply sport filter
   let filteredAvailable = availablePlayers
   let filteredUnavailable = unavailablePlayers
 
   if (sport) {
+    // Note: Available players don't have a sport yet, so filtering them by sport usually implies 
+    // you want players who play that sport, or just empty list. 
+    // Standard logic: Show all available, or filter unavailable by their team's sport.
     filteredUnavailable = unavailablePlayers.filter(player => 
       player.sports.includes(sport)
     )
