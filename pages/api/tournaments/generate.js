@@ -2,22 +2,16 @@ import { createPagesServerClient } from '@supabase/auth-helpers-nextjs'
 
 // --- Helper Functions for Randomization ---
 
-// 1. Get a random element from an array
 const getRandomElement = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
-// 2. Generate a random timestamp within a date range
 const getRandomMatchTime = (startDate, endDate, possibleHours) => {
-    // Generate a random date between startDate and endDate
     const start = new Date(startDate).getTime();
     const end = new Date(endDate).getTime();
     const randomTime = start + Math.random() * (end - start);
 
     const randomDate = new Date(randomTime);
-
-    // Pick a random hour from the possible hours array
     const randomHour = getRandomElement(possibleHours);
     
-    // Set the hour and a random minute (00 or 30)
     randomDate.setHours(randomHour);
     randomDate.setMinutes(Math.random() < 0.5 ? 0 : 30);
     randomDate.setSeconds(0);
@@ -25,7 +19,6 @@ const getRandomMatchTime = (startDate, endDate, possibleHours) => {
 
     return randomDate.toISOString();
 };
-
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -55,7 +48,6 @@ export default async function handler(req, res) {
         .from('tournament_registrations')
         .select('team_id')
         .eq('tournament_id', tournamentId)
-        // .eq('status', 'approved') // Use this if you want to strictly use approved teams
 
     if (!registrations || registrations.length < 2) {
         return res.status(400).json({ error: 'Need at least 2 teams to generate a schedule.' });
@@ -65,21 +57,19 @@ export default async function handler(req, res) {
 
     // 3. Define Generation Parameters
     const TODAY = new Date();
-    const START_DATE = new Date(TODAY.setDate(TODAY.getDate() + 7)); // Start 1 week from now
-    const END_DATE = new Date(TODAY.setDate(TODAY.getDate() + 30));   // End 4 weeks from now
-    const POSSIBLE_HOURS = [10, 12, 14, 16, 18, 20]; // Match start times (10:00, 12:00, etc.)
+    const START_DATE = new Date(TODAY.setDate(TODAY.getDate() + 7)); 
+    const END_DATE = new Date(TODAY.setDate(TODAY.getDate() + 30));   
+    const POSSIBLE_HOURS = [10, 12, 14, 16, 18, 20]; 
 
     // 4. Fetch Available Venues
-    // ASSUMPTION: You have a 'venues' table with a 'name' field.
-    const { data: venuesData, error: venuesError } = await supabase
+    // FIX: Changed 'const' to 'let' here so we can reassign it below if empty
+    let { data: venuesData, error: venuesError } = await supabase
         .from('venues')
-        .select('name')
-        // OPTIONAL: Filter venues by location/availability if needed
+        .select('name');
         
     if (venuesError || !venuesData || venuesData.length === 0) {
-        // Fallback if no venues are found
         console.warn('No venues found. Using default "Main Arena".');
-        venuesData = [{ name: 'Main Arena' }];
+        venuesData = [{ name: 'Main Arena' }]; // This reassignment now works
     }
     const venues = venuesData.map(v => v.name);
 
@@ -96,15 +86,14 @@ export default async function handler(req, res) {
                 team_a_id: teams[i],
                 team_b_id: teams[j],
                 status: 'scheduled',
-                // --- NEW RANDOM DATA FIELDS ---
-                date: randomTime, // This inserts the generated date/time
-                venue: randomVenue, // This inserts the random venue
-                round: 'Group Stage' // Placeholder for round name
+                date: randomTime,
+                venue: randomVenue, 
+                round: 'Group Stage' 
             });
         }
     }
 
-    // 6. Clear existing matches (Safer to start fresh)
+    // 6. Clear existing matches
     await supabase.from('matches').delete().eq('tournament_id', tournamentId);
 
     // 7. Insert new matches
