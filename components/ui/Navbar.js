@@ -4,7 +4,8 @@ import { useRouter } from 'next/router'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import { 
-  Menu, X, ChevronDown, LogOut, User, Settings 
+  Menu, X, ChevronDown, LogOut, User, Settings, 
+  MessageCircle, UserPlus // Added new icons
 } from 'lucide-react'
 
 export default function Navbar() {
@@ -96,6 +97,16 @@ export default function Navbar() {
                   </Link>
                 )}
 
+                {/* --- NEW: Recruit Players (Coach Only) --- */}
+                {profile?.role === 'coach' && (
+                  <Link 
+                    href="/player-availability" 
+                    className={navLinkStyle(isActive('/player-availability'))}
+                  >
+                    <UserPlus size={16} /> Recruit
+                  </Link>
+                )}
+
                 {profile?.role === 'coach' && (
                   <Link 
                     href="/tactics/new" 
@@ -104,6 +115,14 @@ export default function Navbar() {
                     Tactics
                   </Link>
                 )}
+
+                {/* --- NEW: Messages (Everyone) --- */}
+                <Link 
+                  href="/messages" 
+                  className={navLinkStyle(isActive('/messages'))}
+                >
+                  <MessageCircle size={16} /> Messages
+                </Link>
               </div>
             )}
           </div>
@@ -119,19 +138,19 @@ export default function Navbar() {
                   className="flex items-center gap-3 bg-white pl-1 pr-3 py-1 rounded-full border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200"
                 >
                   <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 p-[2px]">
-                     <div className="h-full w-full rounded-full bg-white overflow-hidden">
-                       {profile?.avatar_url ? (
-                         <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
-                       ) : (
-                         <div className="h-full w-full bg-gray-100 flex items-center justify-center">
-                            <User className="h-4 w-4 text-gray-400" />
-                         </div>
-                       )}
-                     </div>
+                      <div className="h-full w-full rounded-full bg-white overflow-hidden">
+                        {profile?.avatar_url ? (
+                          <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="h-full w-full bg-gray-100 flex items-center justify-center">
+                             <User className="h-4 w-4 text-gray-400" />
+                          </div>
+                        )}
+                      </div>
                   </div>
                   <div className="flex flex-col items-start mr-1">
                     <span className="text-xs font-bold text-gray-900 leading-none">{profile?.username || 'User'}</span>
-                    <span className="text-[10px] font-medium text-blue-600 capitalize leading-none mt-1">{profile?.role}</span>
+                    <span className="text-xs font-medium text-blue-600 capitalize leading-none mt-1">{profile?.role}</span>
                   </div>
                   <ChevronDown size={14} className={`text-gray-400 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -200,10 +219,10 @@ export default function Navbar() {
              {user ? (
                <>
                  <Link href="/dashboard" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
-                    Dashboard
+                   Dashboard
                  </Link>
                  <Link href="/tournament_portal" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
-                    Tournaments
+                   Tournaments
                  </Link>
                  {(profile?.role === 'coach' || profile?.role === 'player') && (
                    <Link href="/team_portal" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
@@ -211,10 +230,18 @@ export default function Navbar() {
                    </Link>
                  )}
                  {profile?.role === 'coach' && (
-                   <Link href="/tactics/new" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
-                     Tactics
-                   </Link>
+                   <>
+                     <Link href="/player-availability" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 flex items-center gap-2">
+                       <UserPlus size={16} /> Recruit Players
+                     </Link>
+                     <Link href="/tactics/new" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
+                       Tactics
+                     </Link>
+                   </>
                  )}
+                 <Link href="/messages" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50 flex items-center gap-2">
+                    <MessageCircle size={16} /> Messages
+                 </Link>
                  <Link href="/account" className="block px-3 py-2 rounded-md text-base font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-50">
                    Account
                  </Link>
