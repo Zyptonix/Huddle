@@ -1,73 +1,79 @@
-import { createContext, useContext, useEffect, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { createContext, useContext, useEffect, useState } from 'react'
+import { createPagesBrowserClient } from '@supabase/auth-helpers-nextjs'
+import Loading from '../components/ui/Loading'
 
-const AuthContext = createContext();
+const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true); // Starts true
+  // FIX 1: Create the client once using useState. 
+  // This prevents it from being re-created on every render, which crashes SSR.
+  const [supabase] = useState(() => createPagesBrowserClient())
+
+  const [user, setUser] = useState(null)
+  const [profile, setProfile] = useState(null)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let mounted = true;
 
-    async function getSession() {
-      // 1. Get Session
-      const { data: { session } } = await supabase.auth.getSession();
+    const init = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
 
-      if (mounted) {
+        if (!mounted) return
+
         if (session?.user) {
-          setUser(session.user);
-          // 2. Fetch Profile only if user exists
-          const { data } = await supabase
+          setUser(session.user)
+          
+          // Fetch profile safely
+          const { data: profileData } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', session.user.id)
-            .single();
-          setProfile(data || { role: 'fan' });
-        } else {
-          setUser(null);
-          setProfile(null);
+            .maybeSingle()
+            
+          if (mounted) setProfile(profileData || null)
         }
-        setLoading(false); // STOP LOADING HERE
+      } catch (err) {
+        console.error('Auth init error:', err)
+      } finally {
+        if (mounted) setLoading(false)
       }
     }
 
-    getSession();
+    init()
 
-    // 3. Listen for changes (Login/Logout)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (mounted) {
-          if (session?.user) {
-            setUser(session.user);
-            // Optional: Refetch profile here if needed
-          } else {
-            setUser(null);
-            setProfile(null);
-          }
-          setLoading(false);
-        }
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return
+
+      if (session?.user) {
+        setUser(session.user)
+        // Optionally refetch profile here if needed, but usually strictly not needed for simple auth switch
+      } else {
+        setUser(null)
+        setProfile(null)
       }
-    );
+      setLoading(false)
+    })
 
     return () => {
-      mounted = false;
-      subscription?.unsubscribe();
-    };
-  }, []);
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [supabase])
 
-  const value = {
-    signUp: (data) => supabase.auth.signUp(data),
-    signIn: (data) => supabase.auth.signInWithPassword(data),
-    signOut: () => supabase.auth.signOut(),
-    user,
-    profile,
-    loading // Expose loading state
-  };
+  // FIX 2: If the 'Loading' component itself has an error, it will crash the page.
+  // If this still fails, try replacing <Loading... /> with a simple <div>Loading...</div>
+  if (loading) {
+    return <Loading message="Initializing..." />
+  }
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={{ user, profile, supabase }}>
       {children}
     </AuthContext.Provider>
   );
