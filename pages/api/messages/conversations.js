@@ -11,7 +11,7 @@ export default async function handler(req, res) {
 
   if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
-  // Get all conversations where user is either user1 or user2
+  // 1. Get conversations (Added 'deleted_by' to selection)
   const { data: conversations, error } = await supabase
     .from('conversations')
     .select(`
@@ -19,6 +19,7 @@ export default async function handler(req, res) {
       user1_id,
       user2_id,
       created_at,
+      deleted_by, 
       user1:user1_id(id, username, avatar_url, role),
       user2:user2_id(id, username, avatar_url, role)
     `)
@@ -27,22 +28,32 @@ export default async function handler(req, res) {
 
   if (error) return res.status(500).json({ error: error.message })
 
-  // For each conversation, get the last message and unread count
+  // 2. CRITICAL FIX: Filter out conversations the user has deleted
+  const visibleConversations = conversations.filter(c => 
+    !c.deleted_by || !c.deleted_by.includes(user.id)
+  )
+
+  // 3. Get details for each visible conversation
   const conversationsWithDetails = await Promise.all(
-    conversations.map(async (conv) => {
-      // Determine who the "other user" is
+    visibleConversations.map(async (conv) => {
       const otherUser = conv.user1_id === user.id ? conv.user2 : conv.user1
 
-      // Get last message
-      const { data: lastMsg } = await supabase
+      // Get last message (Ensure we don't fetch one we deleted)
+      // Note: We fetch 5 here to be safe, in case the very last one was deleted by us,
+      // we can fallback to the one before it in JS.
+      const { data: lastMessages } = await supabase
         .from('messages')
-        .select('content, created_at')
+        .select('content, created_at, deleted_by')
         .eq('conversation_id', conv.id)
         .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
+        .limit(5)
+      
+      // Find the first message that hasn't been deleted by current user
+      const lastMsg = lastMessages?.find(m => 
+        !m.deleted_by || !m.deleted_by.includes(user.id)
+      )
 
-      // Get unread message count (messages sent by other user that current user hasn't read)
+      // Get unread count
       const { count: unreadCount } = await supabase
         .from('messages')
         .select('*', { count: 'exact', head: true })
@@ -53,6 +64,7 @@ export default async function handler(req, res) {
       return {
         id: conv.id,
         otherUser: otherUser,
+        // If no valid message found, show 'No messages'
         lastMessage: lastMsg?.content || 'No messages yet',
         lastMessageTime: lastMsg?.created_at || conv.created_at,
         unreadCount: unreadCount || 0
@@ -60,7 +72,7 @@ export default async function handler(req, res) {
     })
   )
 
-  // Sort by last message time
+  // 4. Sort by last message time
   conversationsWithDetails.sort((a, b) => 
     new Date(b.lastMessageTime) - new Date(a.lastMessageTime)
   )
