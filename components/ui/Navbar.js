@@ -95,6 +95,9 @@ export default function Navbar() {
                 <Link href="/dashboard" className={navLinkStyle(router.pathname === '/dashboard')}>
                   Dashboard
                 </Link>
+                <Link href="/merch" className={navLinkStyle(router.pathname === '/merch')}>
+                  Merch Store
+                </Link>
                 
                 <Link href="/tournament_portal" className={navLinkStyle(isActive('/tournament_portal') || isActive('/tournament/'))}>
                   {profile?.role === 'organizer' ? 'Manage Tournaments' : 'Tournaments'}

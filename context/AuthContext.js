@@ -8,15 +8,28 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Define the fetching logic as a reusable function
-  const fetchProfile = async (userId) => {
+  // --- IMPROVED FETCH FUNCTION WITH RETRY ---
+  const fetchProfile = async (userId, retries = 3) => {
     try {
-      const { data } = await supabase
+      // 1. Attempt to fetch
+      const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single();
-      setProfile(data || null);
+        .maybeSingle();
+
+      if (data) {
+        setProfile(data);
+      } else if (retries > 0) {
+        // 2. If no data, WAIT 1 second and TRY AGAIN
+        console.log(`Profile not found yet. Retrying... (${retries} attempts left)`);
+        setTimeout(() => {
+            fetchProfile(userId, retries - 1);
+        }, 1000); 
+      } else {
+        // 3. Give up after 3 tries (User truly has no profile)
+        setProfile(null);
+      }
     } catch (error) {
       console.error('Error fetching profile:', error);
     }
@@ -31,7 +44,8 @@ export function AuthProvider({ children }) {
       if (mounted) {
         if (session?.user) {
           setUser(session.user);
-          await fetchProfile(session.user.id); // Use the function here
+          // Pass '3' to enable retries on initial load
+          await fetchProfile(session.user.id, 3); 
         } else {
           setUser(null);
           setProfile(null);
@@ -47,7 +61,8 @@ export function AuthProvider({ children }) {
         if (mounted) {
           if (session?.user) {
             setUser(session.user);
-            await fetchProfile(session.user.id); // And here
+            // Retry is CRITICAL here for Google Sign-In
+            await fetchProfile(session.user.id, 3); 
           } else {
             setUser(null);
             setProfile(null);

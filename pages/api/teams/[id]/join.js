@@ -1,55 +1,68 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js'
 
-// Initialize Supabase with Service Role Key to bypass RLS for insertions
+// Create a new client specifically for this API route to ensure clean state
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+  process.env.SUPABASE_SERVICE_ROLE_KEY // Use Service Role to bypass RLS for insertions
+)
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
-    res.setHeader('Allow', ['POST']);
-    return res.status(405).end(`Method ${req.method} Not Allowed`);
+    return res.status(405).json({ message: 'Method not allowed' })
   }
 
-  const { id } = req.query; // This is the team_id from the URL
-  const { user_id } = req.body; // Sent from frontend
+  const { id } = req.query // Team ID (from URL)
+  const { user_id } = req.body // User ID (from body)
 
-  if (!id || !user_id) {
-    return res.status(400).json({ error: 'Missing team ID or User ID' });
+  console.log(`[Join API] Request: User ${user_id} -> Team ${id}`)
+
+  if (!user_id || !id) {
+    console.error("[Join API] Missing ID")
+    return res.status(400).json({ message: 'Missing User ID or Team ID' })
   }
 
   try {
-    // 1. Check if already a member
-    const { data: existing } = await supabase
+    // 1. Check if they are already in the team (or have a pending request)
+    const { data: existing, error: fetchError } = await supabase
       .from('team_members')
       .select('*')
       .eq('team_id', id)
       .eq('user_id', user_id)
-      .single();
+      .maybeSingle() // Use maybeSingle to avoid 406 error if not found
 
-    if (existing) {
-      return res.status(400).json({ error: 'User is already in this team' });
+    if (fetchError) {
+      console.error("[Join API] Fetch Error:", fetchError)
+      throw fetchError
     }
 
-    // 2. Add to team
-    const { error } = await supabase
+    if (existing) {
+      console.log("[Join API] Request already exists")
+      return res.status(400).json({ message: 'You are already a member or have a pending request.' })
+    }
+
+    // 2. Insert the Request
+    const { data, error: insertError } = await supabase
       .from('team_members')
       .insert([
         { 
           team_id: id, 
           user_id: user_id, 
           role: 'player', 
-          status: 'active' 
+          status: 'pending' // This requires the SQL fix above!
         }
-      ]);
+      ])
+      .select()
 
-    if (error) throw error;
+    if (insertError) {
+      console.error("[Join API] Insert Error:", insertError)
+      throw insertError
+    }
 
-    return res.status(200).json({ success: true, message: 'Joined team successfully' });
+    console.log("[Join API] Success:", data)
+    return res.status(200).json({ message: 'Request sent successfully', data })
 
   } catch (error) {
-    console.error('Join Error:', error);
-    return res.status(500).json({ error: error.message });
+    console.error("[Join API] Critical Failure:", error)
+    return res.status(500).json({ message: error.message || 'Internal Server Error' })
   }
 }
