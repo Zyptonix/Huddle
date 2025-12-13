@@ -27,7 +27,7 @@ export default function TournamentPortal() {
   const fetchTournaments = async () => {
     try {
       // Assuming you have an API to get all tournaments
-      const res = await fetch('/api/tournaments') 
+      const res = await fetch('/api/tournaments/all') 
       if (res.ok) {
         const data = await res.json()
         setTournaments(data)
@@ -84,7 +84,7 @@ export default function TournamentPortal() {
               {/* Only show Create button if safe check passes */}
               {isOrganizer && (
                 <Link 
-                  href="/tournaments/create" 
+                  href="/tournament/create" 
                   className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold transition-colors shadow-md shadow-indigo-200"
                 >
                   <Plus size={18} /> Create Event

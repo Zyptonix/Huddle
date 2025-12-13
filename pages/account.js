@@ -33,11 +33,7 @@ export default function Account() {
           </div>
 
           {/* Main Content Area */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-            {/* Header Banner (Visual Flourish) */}
-            <div className="h-32 bg-gradient-to-r from-indigo-600 to-blue-500 relative">
-               <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-20"></div>
-            </div>
+
 
             <div className="px-6 pb-8 md:px-10">
               {isEditing ? (
@@ -57,7 +53,7 @@ export default function Account() {
           </div>
 
         </div>
-      </div>
+
     </Layout>
   )
 }
