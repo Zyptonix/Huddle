@@ -139,7 +139,7 @@ export default function CreateTournament() {
                                     <option value="football">Football</option>
                                     <option value="basketball">Basketball</option>
                                     <option value="cricket">Cricket</option>
-                                    <option value="volleyball">Volleyball</option>
+                      
                                 </select>
                             </div>
                         </div>
@@ -180,20 +180,6 @@ export default function CreateTournament() {
                             </div>
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2">Venue / Location</label>
-                            <div className="relative">
-                                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-                                <input 
-                                    type="text"
-                                    name="venue"
-                                    value={formData.venue}
-                                    onChange={handleChange}
-                                    placeholder="e.g. Central City Park"
-                                    className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-                                />
-                            </div>
-                        </div>
                     </div>
 
                     <div>
