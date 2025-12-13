@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '../../context/AuthContext'
 import Layout from '../../components/ui/Layout'
-import { User, Shield, Trophy, Send, MessageSquare, MapPin } from 'lucide-react'
+import { User, Shield, Trophy, Send, MessageSquare, MapPin, BarChart2 } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import FollowButton from '../../components/ui/FollowButton'
+import PlayerStatsDashboard from '../../components/dashboards/PlayerStatsDashboard'
 
 export default function PublicProfile() {
   const router = useRouter()
@@ -16,6 +17,7 @@ export default function PublicProfile() {
   const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState('overview') 
 
   // Follow Stats
   const [followerCount, setFollowerCount] = useState(0)
@@ -29,13 +31,11 @@ export default function PublicProfile() {
   }, [id])
 
   const fetchFollowStats = async () => {
-    // 1. Get count of people following THIS profile (id)
     const { count: followers } = await supabase
       .from('follows')
       .select('id', { count: 'exact', head: true })
       .eq('following_user_id', id)
 
-    // 2. Get count of people/teams THIS profile is following
     const { count: following } = await supabase
       .from('follows')
       .select('id', { count: 'exact', head: true })
@@ -47,7 +47,6 @@ export default function PublicProfile() {
 
   const fetchProfileData = async () => {
     try {
-      // Fetch user details from the 'profiles' table
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -58,6 +57,10 @@ export default function PublicProfile() {
         console.error('Error fetching profile:', error.message)
       } else {
         setProfile(data)
+        // Reset tab to overview if the loaded profile isn't a player
+        if (data.role !== 'player') {
+            setActiveTab('overview');
+        }
       }
     } catch (err) {
       console.error('Unexpected error:', err)
@@ -73,7 +76,6 @@ export default function PublicProfile() {
     setNewComment('')
   }
 
-  // --- MESSAGE LOGIC ---
   const handleMessage = async () => {
     if (!user) {
       router.push('/login');
@@ -85,61 +87,33 @@ export default function PublicProfile() {
         return;
     }
 
+    setActionLoading(true);
+
     try {
-      setActionLoading(true);
+      const res = await fetch('/api/messages/start-conversation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otherUserId: id })
+      });
 
-      // STEP 1: CHECK IF CONVERSATION EXISTS (User 1 = Me)
-      const { data: existingAsUser1 } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('user1_id', user.id)
-        .eq('user2_id', id)
-        .maybeSingle();
+      const data = await res.json();
 
-      if (existingAsUser1) {
-        router.push({ pathname: '/messages', query: { conversationId: existingAsUser1.id } });
-        return;
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to start conversation");
       }
 
-      // STEP 2: CHECK IF CONVERSATION EXISTS (User 2 = Me)
-      const { data: existingAsUser2 } = await supabase
-        .from('conversations')
-        .select('id')
-        .eq('user1_id', id)
-        .eq('user2_id', user.id)
-        .maybeSingle();
-
-      if (existingAsUser2) {
-        router.push({ pathname: '/messages', query: { conversationId: existingAsUser2.id } });
-        return;
-      }
-
-      // STEP 3: CREATE NEW CONVERSATION
-      const { data: newConvo, error: createError } = await supabase
-        .from('conversations')
-        .insert([{ user1_id: user.id, user2_id: id }])
-        .select()
-        .single();
-
-      if (createError) {
-        console.error("Error creating conversation:", createError.message);
-        alert("Could not start chat. Please try again.");
-        setActionLoading(false);
-        return;
-      }
-
-      // STEP 4: OPEN THE NEW CHAT
-      router.push({ pathname: '/messages', query: { conversationId: newConvo.id } });
+      router.push({ pathname: '/messages', query: { conversationId: data.id } });
 
     } catch (error) {
-      console.error("Unexpected error in message handler:", error);
+      console.error("Error in message handler:", error);
+      alert("Could not open chat. Please try again.");
+    } finally {
       setActionLoading(false);
     }
   }
 
   if (loading) return <Layout><div className="p-10 text-center">Loading Profile...</div></Layout>
 
-  // If loading finished but no profile found
   if (!profile) return (
     <Layout>
         <div className="flex flex-col items-center justify-center min-h-[50vh]">
@@ -152,10 +126,7 @@ export default function PublicProfile() {
 
   return (
     <Layout title={`${profile.username || 'User'} - Profile`}>
-      {/* Cover Image */}
       <div className="h-48 bg-gradient-to-r from-blue-600 to-purple-600 rounded-t-2xl relative">
-        
-        {/* Top Right Action Buttons */}
         <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
             {user?.id === id ? (
                 <button onClick={() => router.push('/account')} className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg text-sm font-bold backdrop-blur-sm transition-all border border-white/50">
@@ -185,7 +156,6 @@ export default function PublicProfile() {
 
       <div className="bg-white rounded-b-2xl shadow-sm border border-gray-200 px-8 pb-8 mb-8">
         <div className="relative flex flex-col md:flex-row items-center md:items-end -mt-16 mb-6 gap-6">
-           {/* Avatar */}
            <div className="h-32 w-32 rounded-full border-4 border-white bg-white shadow-lg overflow-hidden flex-shrink-0">
              {profile.avatar_url ? (
                <img src={profile.avatar_url} alt={profile.username} className="h-full w-full object-cover" />
@@ -203,7 +173,6 @@ export default function PublicProfile() {
                      {profile.jersey_number && <span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">#{profile.jersey_number}</span>}
                   </div>
 
-                  {/* Stats Display */}
                   <div className="flex items-center gap-4 text-sm">
                       <div className="flex gap-1 text-gray-600">
                           <span className="font-bold text-gray-900">{followerCount}</span> Followers
@@ -216,80 +185,104 @@ export default function PublicProfile() {
            </div>
         </div>
 
-        {/* Info Grid */}
-        <div className="grid md:grid-cols-3 gap-8">
-           {/* Left Column: Info */}
-           <div className="space-y-6">
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                 <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2"><User size={18}/> About</h3>
-                 <div className="space-y-2 text-sm text-gray-600">
-                    <p><strong>Age:</strong> {profile.age || 'N/A'}</p>
-                    <p className="flex items-center gap-1">
-                        <MapPin size={14} /> 
-                        {profile.address || 'Location Hidden'}
-                    </p>
-                    {profile.positions_preferred && (
-                        <div>
-                            <strong className="block mb-1">Positions:</strong>
-                            <span className="bg-gray-200 px-2 py-0.5 rounded text-xs">{profile.positions_preferred}</span>
-                        </div>
-                    )}
-                 </div>
-              </div>
+        {/* --- TABS --- */}
+        <div className="flex gap-6 mt-8 border-b border-gray-200">
+            <button 
+                onClick={() => setActiveTab('overview')}
+                className={`pb-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            >
+                <User size={18} /> Overview
+            </button>
+            
+            {/* ONLY SHOW STATS TAB IF THE PROFILE BELONGS TO A PLAYER */}
+            {profile.role === 'player' && (
+                <button 
+                    onClick={() => setActiveTab('stats')}
+                    className={`pb-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'stats' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                >
+                    <BarChart2 size={18} /> Statistics
+                </button>
+            )}
+        </div>
 
-               {(profile.notable_achievements || profile.previous_teams) && (
-                  <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
-                      <h3 className="font-bold text-yellow-800 mb-3 flex items-center gap-2"><Trophy size={18}/> Career</h3>
-                      {profile.previous_teams && (
-                          <div className="mb-2">
-                              <span className="text-xs font-bold text-yellow-800 uppercase">Teams</span>
-                              <p className="text-sm text-yellow-700">{profile.previous_teams}</p>
-                          </div>
-                      )}
-                      {profile.notable_achievements && (
-                          <div>
-                              <span className="text-xs font-bold text-yellow-800 uppercase">Achievements</span>
-                              <p className="text-sm text-yellow-700">{profile.notable_achievements}</p>
-                          </div>
-                      )}
-                  </div>
-              )}
-           </div>
-
-           {/* Right Column: Wall / Comments */}
-           <div className="md:col-span-2 space-y-6">
-              <div className="bg-white border border-gray-200 rounded-xl p-6">
-                 <h3 className="font-bold text-gray-900 mb-4">Wall</h3>
-                 {user && (
-                    <form onSubmit={handlePostComment} className="flex gap-3 mb-8">
-                       <div className="h-10 w-10 rounded-full bg-gray-200 overflow-hidden flex-shrink-0">
-                          {/* Ideally fetch current user avatar here too, using placeholder for now */}
-                          <div className="h-full w-full bg-gray-300 flex items-center justify-center"><User size={20} className="text-white"/></div>
-                       </div>
-                       <div className="flex-grow relative">
-                          <input 
-                             type="text" 
-                             className="w-full bg-gray-50 border border-gray-200 rounded-full px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                             placeholder={`Write something to ${profile.username}...`}
-                             value={newComment}
-                             onChange={e => setNewComment(e.target.value)}
-                          />
-                          <button type="submit" className="absolute right-2 top-1.5 p-1 text-blue-600 hover:bg-blue-100 rounded-full">
-                             <Send size={18} />
-                          </button>
-                       </div>
-                    </form>
-                 )}
-                 {/* Comments List would go here */}
-                 <div className="space-y-4">
-                    {comments.length === 0 ? <p className="text-gray-400 italic text-center">No comments yet.</p> : comments.map(c => (
-                        <div key={c.id} className="flex gap-3">
-                           {/* Render Comment */}
+        <div className="mt-8">
+            {activeTab === 'overview' ? (
+                <div className="grid md:grid-cols-3 gap-8">
+                    {/* LEFT: Info */}
+                    <div className="space-y-6">
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
+                            <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2"><User size={18}/> About</h3>
+                            <div className="space-y-2 text-sm text-gray-600">
+                                <p><strong>Age:</strong> {profile.age || 'N/A'}</p>
+                                <p className="flex items-center gap-1">
+                                    <MapPin size={14} /> 
+                                    {profile.address || 'Location Hidden'}
+                                </p>
+                                {profile.positions_preferred && (
+                                    <div>
+                                        <strong className="block mb-1">Positions:</strong>
+                                        <span className="bg-gray-200 px-2 py-0.5 rounded text-xs">{profile.positions_preferred}</span>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                    ))}
-                 </div>
-              </div>
-           </div>
+
+                        {(profile.notable_achievements || profile.previous_teams) && (
+                            <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
+                                <h3 className="font-bold text-yellow-800 mb-3 flex items-center gap-2"><Trophy size={18}/> Career</h3>
+                                {profile.previous_teams && (
+                                    <div className="mb-2">
+                                        <span className="text-xs font-bold text-yellow-800 uppercase">Teams</span>
+                                        <p className="text-sm text-yellow-700">{profile.previous_teams}</p>
+                                    </div>
+                                )}
+                                {profile.notable_achievements && (
+                                    <div>
+                                        <span className="text-xs font-bold text-yellow-800 uppercase">Achievements</span>
+                                        <p className="text-sm text-yellow-700">{profile.notable_achievements}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* RIGHT: Feed */}
+                    <div className="md:col-span-2 space-y-6">
+                        <div className="bg-white border border-gray-200 rounded-xl p-6">
+                            <h3 className="font-bold text-gray-900 mb-4">Wall</h3>
+                            {user && (
+                                <form onSubmit={handlePostComment} className="flex gap-3 mb-8">
+                                    <div className="h-10 w-10 rounded-full bg-gray-200 overflow-hidden flex-shrink-0">
+                                        <div className="h-full w-full bg-gray-300 flex items-center justify-center"><User size={20} className="text-white"/></div>
+                                    </div>
+                                    <div className="flex-grow relative">
+                                        <input 
+                                            type="text" 
+                                            className="w-full bg-gray-50 border border-gray-200 rounded-full px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                                            placeholder={`Write something to ${profile.username}...`}
+                                            value={newComment}
+                                            onChange={e => setNewComment(e.target.value)}
+                                        />
+                                        <button type="submit" className="absolute right-2 top-1.5 p-1 text-blue-600 hover:bg-blue-100 rounded-full">
+                                            <Send size={18} />
+                                        </button>
+                                    </div>
+                                </form>
+                            )}
+                            <div className="space-y-4">
+                                {comments.length === 0 ? <p className="text-gray-400 italic text-center">No comments yet.</p> : comments.map(c => (
+                                    <div key={c.id} className="flex gap-3">
+                                        {/* Render Comment */}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                /* --- STATS TAB CONTENT (Only renders if activeTab === 'stats', which is only reachable by players) --- */
+                <PlayerStatsDashboard playerId={id} />
+            )}
         </div>
       </div>
     </Layout>

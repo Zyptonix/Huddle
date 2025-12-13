@@ -6,57 +6,82 @@ export default async function handler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`)
   }
 
+  // 1. Initialize Supabase Client
   const supabase = createPagesServerClient({ req, res })
+   
+  // 2. Get User
   const { data: { user } } = await supabase.auth.getUser()
-
   if (!user) return res.status(401).json({ error: 'Unauthorized' })
 
   const { otherUserId } = req.body
+  if (!otherUserId) return res.status(400).json({ error: 'Missing otherUserId' })
 
-  if (!otherUserId) {
-    return res.status(400).json({ error: 'Other user ID is required' })
-  }
+  try {
+    // 3. Check if conversation exists
+    const { data: existingConvo, error: fetchError } = await supabase
+      .from('conversations')
+      .select('*')
+      .or(`and(user1_id.eq.${user.id},user2_id.eq.${otherUserId}),and(user1_id.eq.${otherUserId},user2_id.eq.${user.id})`)
+      .maybeSingle() // Use maybeSingle to prevent crash if 0 rows
 
-  // Check if conversation already exists
-  const { data: existingConversation } = await supabase
-    .from('conversations')
-    .select('id, user1_id, user2_id, user1:user1_id(id, username, avatar_url, role), user2:user2_id(id, username, avatar_url, role)')
-    .or(`and(user1_id.eq.${user.id},user2_id.eq.${otherUserId}),and(user1_id.eq.${otherUserId},user2_id.eq.${user.id})`)
-    .single()
+    if (fetchError) throw fetchError
 
-  if (existingConversation) {
-    // Return existing conversation with proper otherUser
-    const otherUser = existingConversation.user1_id === user.id 
-      ? existingConversation.user2 
-      : existingConversation.user1
+    let conversation = existingConvo
 
+    if (conversation) {
+      // 4. REVIVE LOGIC: If exists but deleted by me, call the secure RPC function
+      const currentDeleted = conversation.deleted_by || []
+      
+      if (currentDeleted.includes(user.id)) {
+        // CALL THE RPC FUNCTION WE JUST CREATED
+        const { data: revived, error: rpcError } = await supabase
+          .rpc('revive_conversation', {
+            conv_id: conversation.id,
+            user_id: user.id
+          })
+          .maybeSingle()
+
+        if (rpcError) throw rpcError
+        
+        // If revived successfully, use that data; otherwise keep existing
+        if (revived) conversation = revived
+      }
+    } else {
+      // 5. CREATE LOGIC: If no conversation exists, create a new one
+      const { data: newConvo, error: createError } = await supabase
+        .from('conversations')
+        .insert([
+          { user1_id: user.id, user2_id: otherUserId }
+        ])
+        .select()
+        .single()
+
+      if (createError) throw createError
+      conversation = newConvo
+    }
+
+    // 6. Fetch details of the "Other User"
+    const isUser1 = conversation.user1_id === user.id
+    const otherIdToFetch = isUser1 ? conversation.user2_id : conversation.user1_id
+
+    const { data: otherUserData } = await supabase
+        .from('profiles')
+        .select('id, username, avatar_url, role')
+        .eq('id', otherIdToFetch)
+        .maybeSingle() // Use maybeSingle to be safe
+
+    // 7. Return Formatted Object
     return res.status(200).json({
-      id: existingConversation.id,
-      otherUser: otherUser
+      ...conversation,
+      otherUser: otherUserData || { username: 'Unknown User' }, // Fallback if profile missing
+      unreadCount: 0,
+      lastMessage: 'New conversation',
+      lastMessageTime: new Date().toISOString()
     })
+
+  } catch (error) {
+    console.error('Start Conversation Error:', error)
+    // Return a clearer error so the frontend knows what happened
+    return res.status(500).json({ error: error.message, details: error.details })
   }
-
-  // Create new conversation
-  const { data: newConversation, error: convError } = await supabase
-    .from('conversations')
-    .insert([{
-      user1_id: user.id,
-      user2_id: otherUserId
-    }])
-    .select('id, user1_id, user2_id')
-    .single()
-
-  if (convError) return res.status(500).json({ error: convError.message })
-
-  // Get other user's profile
-  const { data: otherUserProfile } = await supabase
-    .from('profiles')
-    .select('id, username, avatar_url, role')
-    .eq('id', otherUserId)
-    .single()
-
-  return res.status(201).json({
-    id: newConversation.id,
-    otherUser: otherUserProfile
-  })
 }
