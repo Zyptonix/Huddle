@@ -8,7 +8,13 @@ export default function Register() {
       title="Create your account" 
       subtitle={
         <>
-          Already have an account? <Link href="/login" className="font-medium text-blue-600 hover:text-blue-500">Sign in</Link>
+          Already have an account?{' '}
+          <Link
+            href="/login"
+            className="font-medium text-blue-600 hover:text-blue-500"
+          >
+            Sign in
+          </Link>
         </>
       }
     >
@@ -16,3 +22,4 @@ export default function Register() {
     </AuthLayout>
   )
 }
+

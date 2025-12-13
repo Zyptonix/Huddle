@@ -12,42 +12,56 @@ export default function ManageLineup() {
   const [starters, setStarters] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!id) return;
-    const fetchData = async () => {
-      // 1. Get Match Info
-      const { data: matchData } = await supabase.from('matches')
-        .select('*, teams_a:team_a_id(name), teams_b:team_b_id(name)')
-        .eq('id', id).single();
-      setMatch(matchData);
+useEffect(() => {
+  if (!id) return;
+  const fetchData = async () => {
+    // 1. Get Match & Team Info
+    const { data: matchData, error: matchError } = await supabase.from('matches')
+      .select('*, teams_a:team_a_id(name)')
+      .eq('id', id)
+      .single();
 
-      // 2. Get User's Team (Hardcoded to Team A for demo. In real app, check user's team_id)
-      const teamId = matchData.team_a_id; 
+    if (matchError || !matchData) return setLoading(false);
+    setMatch(matchData);
+    const teamId = matchData.team_a_id; 
 
-      // 3. Fetch Squad
-      const { data: players } = await supabase
-        .from('team_members')
-        .select('profiles(id, username, jersey_number, avatar_url)')
-        .eq('team_id', teamId);
+    // 2. Fetch Squad
+    const { data: players } = await supabase
+      .from('team_members')
+      .select('profiles(id, username, jersey_number, avatar_url)')
+      .eq('team_id', teamId);
+    
+    setSquad(players ? players.map(p => p.profiles) : []);
+
+    // 3. CHECK FOR LINEUP
+    const { data: existingLineup } = await supabase.from('match_lineups')
+      .select('player_id')
+      .eq('match_id', id)
+      .eq('team_id', teamId);
+    
+    if (existingLineup && existingLineup.length > 0) {
+      // A: Use specific match lineup if it exists
+      setStarters(existingLineup.map(l => l.player_id));
+    } else {
+      // B: AUTOMATION - If no lineup, load the "Default XI" from tactics
+      console.log("No match lineup found, loading default...");
       
-      const formattedSquad = players?.map(p => p.profiles) || [];
-      setSquad(formattedSquad);
+      const { data: defaultTactic } = await supabase
+        .from('tactics')
+        .select('data')
+        .eq('team_id', teamId)
+        .eq('name', 'Default XI')
+        .single();
 
-      // 4. Fetch Existing Lineup (if editing)
-      const { data: existingLineup } = await supabase.from('match_lineups')
-        .select('player_id')
-        .eq('match_id', id)
-        .eq('team_id', teamId);
-      
-      if (existingLineup?.length > 0) {
-        setStarters(existingLineup.map(l => l.player_id));
+      if (defaultTactic?.data?.starter_ids) {
+        setStarters(defaultTactic.data.starter_ids);
       }
+    }
 
-      setLoading(false);
-    };
-    fetchData();
-  }, [id]);
-
+    setLoading(false);
+  };
+  fetchData();
+}, [id]);
   const toggleStarter = (playerId) => {
     if (starters.includes(playerId)) {
       setStarters(starters.filter(id => id !== playerId));

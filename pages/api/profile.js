@@ -1,41 +1,66 @@
-import { createPagesServerClient } from '@supabase/auth-helpers-nextjs'
+// pages/api/profile.js
+import { createClient } from '@supabase/supabase-js';
 
-    export default async function handler(req, res) {
-      if (req.method !== 'PATCH') {
-        res.setHeader('Allow', ['PATCH'])
-        return res.status(405).end(`Method ${req.method} Not Allowed`)
-      }
+export default async function handler(req, res) {
+  if (req.method !== 'PATCH') {
+    return res.status(405).json({ message: 'Method not allowed' });
+  }
 
-      // 1. Create the server client that can read the auth cookie
-      const supabaseServer = createPagesServerClient({ req, res })
-      
-      // 2. Use it to get the user
-      const { data: { user }, error: userError } = await supabaseServer.auth.getUser()
+  try {
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY
+    );
 
-      if (userError || !user) {
-        return res.status(401).json({ error: 'You must be logged in.' })
-      }
+    const token = req.headers.authorization?.split(' ')[1];
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
-      // 3. Get the username from the request body
-      const { username } = req.body
-      if (!username) {
-        return res.status(400).json({ error: 'Username is required.' })
-      }
-
-      // 4. Use the *SAME* server client to update the database
-      // This client carries the user's auth info, so RLS passes
-      const { data, error } = await supabaseServer 
-        .from('profiles')
-        .update({ username: username })
-        .eq('id', user.id) // RLS will also double-check this
-        .select()
-        .single()
-
-      if (error) {
-        console.error('Supabase error:', error.message)
-        return res.status(500).json({ error: 'Failed to update profile.' })
-      }
-
-      // Success!
-      return res.status(200).json(data)
+    if (authError || !user) {
+      return res.status(401).json({ message: 'Unauthorized' });
     }
+
+    // 1. EXTRACT avatar_url HERE
+    const {
+      username,
+      phone,
+      address,
+      height,
+      age,
+      jersey_number,
+      positions_preferred,
+      previous_teams,
+      notable_achievements,
+      previous_tournaments,
+      avatar_url // <--- Added this
+    } = req.body;
+
+    // 2. INCLUDE IT IN THE UPDATE HERE
+    const { data, error: dbError } = await supabase
+      .from('profiles')
+      .update({
+        username,
+        phone,
+        address,
+        height,
+        age,
+        jersey_number,
+        positions_preferred,
+        previous_teams,
+        notable_achievements,
+        previous_tournaments,
+        avatar_url // <--- Added this
+      })
+      .eq('id', user.id);
+
+    if (dbError) {
+      console.error('Database Error:', dbError);
+      throw dbError;
+    }
+
+    return res.status(200).json({ message: 'Profile updated', data });
+
+  } catch (error) {
+    console.error('API Route Error:', error);
+    return res.status(500).json({ message: error.message });
+  }
+}
