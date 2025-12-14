@@ -3,9 +3,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { 
   Users, Plus, Search, Hash, Shield, 
-  ArrowRight, Briefcase, UserCheck, Lock, Globe, X
+  ArrowRight, Briefcase, UserCheck, Lock, Globe, X, AlertCircle
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabaseClient' // Ensure this path is correct!
 import Layout from '../components/ui/Layout'
 import Loading from '../components/ui/Loading'
 
@@ -20,6 +21,7 @@ export default function TeamPortal() {
   const [loading, setLoading] = useState(true)
   const [joinCode, setJoinCode] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [errorMsg, setErrorMsg] = useState(null) // New error state
 
   useEffect(() => {
     if (user) fetchPortalData()
@@ -27,25 +29,57 @@ export default function TeamPortal() {
 
   const fetchPortalData = async () => {
     try {
+      console.log("--- STARTING FETCH PORTAL DATA ---");
+      setErrorMsg(null);
+
+      // 1. GET SESSION TOKEN
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      if (!token) {
+          console.warn("No active session token found via Supabase client.");
+          // We don't return here, we try fetching anyway in case cookies handle it
+      }
+
+      // 2. PREPARE OPTIONS (Header + Credentials)
+      const options = {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { 'Authorization': `Bearer ${token}` }) // Attach token if exists
+        },
+        credentials: 'include' // <--- CRITICAL: Sends cookies to the server
+      };
+
+      // 3. EXECUTE REQUESTS
       const [joinedRes, managedRes, publicRes] = await Promise.all([
-        fetch('/api/teams/joined'),
-        fetch('/api/teams/created'), 
-        fetch('/api/teams/public') 
+        fetch('/api/teams/joined', options),
+        fetch('/api/teams/created', options), 
+        fetch('/api/teams/public', options) 
       ])
 
+      // 4. HANDLE 401 UNAUTHORIZED SPECIFICALLY
+      if (joinedRes.status === 401 || managedRes.status === 401) {
+          const errText = await joinedRes.text(); // Read the server error message
+          console.error("401 ERROR DETAIL:", errText);
+          throw new Error("Unauthorized: Please try logging out and logging back in.");
+      }
+
+      // 5. PARSE DATA
       const joined = joinedRes.ok ? await joinedRes.json() : []
       const managed = managedRes.ok ? await managedRes.json() : []
       const publicTeams = publicRes.ok ? await publicRes.json() : []
 
-      // 1. Combine Joined + Managed into "My Teams"
+      // --- PROCESS LISTS ---
       const myTeamIds = new Set()
       const combinedMyTeams = []
 
+      // Add Managed teams
       managed.forEach(team => {
         myTeamIds.add(team.id)
         combinedMyTeams.push({ ...team, relation: 'manager' })
       })
 
+      // Add Joined teams
       joined.forEach(team => {
         if (!myTeamIds.has(team.id)) {
           myTeamIds.add(team.id)
@@ -53,7 +87,6 @@ export default function TeamPortal() {
         }
       })
 
-      // 2. Filter All Teams: Remove teams I am already in
       const filteredPublic = publicTeams.filter(team => !myTeamIds.has(team.id))
 
       setData({
@@ -62,7 +95,8 @@ export default function TeamPortal() {
       })
 
     } catch (error) {
-      console.error("Portal load error", error)
+      console.error("Portal load error:", error)
+      setErrorMsg(error.message)
     } finally {
       setLoading(false)
     }
@@ -73,16 +107,21 @@ export default function TeamPortal() {
     if (!joinCode) return; 
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
       const response = await fetch('/api/teams/join', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session?.access_token}`
+        },
         body: JSON.stringify({ userId: user.id, joinCode: joinCode }),
       });
 
       const resData = await response.json();
 
       if (!response.ok) {
-        alert(`Failed: ${resData.error}`); 
+        alert(`Failed: ${resData.error || 'Could not join team'}`); 
         return;
       }
 
@@ -93,6 +132,7 @@ export default function TeamPortal() {
       
     } catch (err) {
       console.error("Network Error:", err);
+      alert("Network error. Check console.");
     }
   };
 
@@ -130,28 +170,39 @@ export default function TeamPortal() {
            <div className="flex gap-3 w-full md:w-auto items-center">
               {isPlayer && (
                   <form onSubmit={handleJoinByCode} className="flex bg-white/10 rounded-lg backdrop-blur-sm border border-white/20 p-1 flex-1 md:flex-none">
-                     <div className="pl-2 flex items-center text-slate-400"><Hash size={16} /></div>
-                     <input 
-                       type="text" 
-                       placeholder="Enter Team Code" 
-                       value={joinCode}
-                       onChange={(e) => setJoinCode(e.target.value)}
-                       className="bg-transparent border-none text-white placeholder-slate-400 text-sm focus:ring-0 w-full md:w-32"
-                     />
-                     <button type="submit" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-md text-xs font-bold transition-colors">
-                       JOIN
-                     </button>
+                      <div className="pl-2 flex items-center text-slate-400"><Hash size={16} /></div>
+                      <input 
+                        type="text" 
+                        placeholder="Enter Team Code" 
+                        value={joinCode}
+                        onChange={(e) => setJoinCode(e.target.value)}
+                        className="bg-transparent border-none text-white placeholder-slate-400 text-sm focus:ring-0 w-full md:w-32"
+                      />
+                      <button type="submit" className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1 rounded-md text-xs font-bold transition-colors">
+                        JOIN
+                      </button>
                   </form>
               )}
               
               {isCoach && (
                   <Link href="/teams/create" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105 whitespace-nowrap">
-                     <Plus size={18} /> Create Team
+                      <Plus size={18} /> Create Team
                   </Link>
               )}
            </div>
         </div>
       </div>
+
+      {/* ERROR MESSAGE DISPLAY */}
+      {errorMsg && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl mb-6 flex items-center gap-3">
+              <AlertCircle size={20} />
+              <div>
+                  <p className="font-bold">Connection Issue</p>
+                  <p className="text-sm">{errorMsg}</p>
+              </div>
+          </div>
+      )}
 
       {/* TABS */}
       <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-gray-200 mb-6 gap-4">
@@ -229,14 +280,14 @@ export default function TeamPortal() {
                <div className={`h-24 relative ${team.sport === 'football' ? 'bg-green-600' : team.sport === 'basketball' ? 'bg-orange-500' : 'bg-blue-600'}`}>
                   <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
                   <div className="absolute -bottom-6 left-6">
-                     <div className="w-16 h-16 rounded-xl bg-white p-1 shadow-md">
-                        <div className="w-full h-full bg-gray-100 rounded-lg flex items-center justify-center text-xl font-black text-gray-400 uppercase">
-                           {team.logo_url ? <img src={team.logo_url} className="w-full h-full object-cover rounded" /> : team.name.substring(0, 2)}
-                        </div>
-                     </div>
+                      <div className="w-16 h-16 rounded-xl bg-white p-1 shadow-md">
+                         <div className="w-full h-full bg-gray-100 rounded-lg flex items-center justify-center text-xl font-black text-gray-400 uppercase">
+                            {team.logo_url ? <img src={team.logo_url} className="w-full h-full object-cover rounded" /> : team.name.substring(0, 2)}
+                         </div>
+                      </div>
                   </div>
                   <span className="absolute top-3 right-3 bg-black/30 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded uppercase">
-                     {team.sport}
+                      {team.sport}
                   </span>
                </div>
                
@@ -245,33 +296,32 @@ export default function TeamPortal() {
                   
                   {/* BADGES */}
                   {activeTab === 'all-teams' ? (
-                     <div className="mt-3 flex items-center gap-2">
-                        {/* FIX: Using is_recruiting now */}
-                        {team.is_recruiting ? (
+                      <div className="mt-3 flex items-center gap-2">
+                         {team.is_recruiting ? (
                              <div className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-1 rounded flex items-center gap-1">
                                 <UserCheck size={14} /> Recruiting
                              </div>
-                        ) : (
+                         ) : (
                              <div className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded flex items-center gap-1">
                                 <Lock size={14} /> Not Recruiting
                              </div>
-                        )}
-                     </div>
+                         )}
+                      </div>
                   ) : (
-                     <div className="mt-3">
-                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded ${team.relation === 'manager' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                           {team.relation === 'manager' ? 'Manager' : 'Player'}
-                        </span>
-                     </div>
+                      <div className="mt-3">
+                         <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded ${team.relation === 'manager' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {team.relation === 'manager' ? 'Manager' : 'Player'}
+                         </span>
+                      </div>
                   )}
 
                   <p className="text-sm text-gray-500 mt-3 line-clamp-2 min-h-[40px]">{team.description || "No team bio available."}</p>
 
                   <div className="mt-4 pt-4 border-t border-gray-100 flex justify-between items-center text-xs text-gray-400 font-medium">
-                     <span className="flex items-center gap-1"><Users size={14} /> {team.member_count || 0} Members</span>
-                     <span className="flex items-center gap-1 text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                       Visit Headquarters <ArrowRight size={12} />
-                     </span>
+                      <span className="flex items-center gap-1"><Users size={14} /> {team.member_count || 0} Members</span>
+                      <span className="flex items-center gap-1 text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                        Visit Headquarters <ArrowRight size={12} />
+                      </span>
                   </div>
                </div>
             </Link>

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { 
   MessageCircle, Send, Search, User, ArrowLeft, Check, CheckCheck, 
-  Users, Loader, Trash2, MoreVertical, X, CornerUpLeft
+  Loader, Trash2, MoreVertical, CornerUpLeft
 } from 'lucide-react';
 
 export default function ChatSystem({ currentUser, initialChatId }) {
@@ -23,14 +23,38 @@ export default function ChatSystem({ currentUser, initialChatId }) {
   const [activeTab, setActiveTab] = useState('chats'); 
 
   useEffect(() => {
-    fetchConversations();
-    fetchAllUsers();
+    if (currentUser) {
+        fetchConversations();
+        fetchAllUsers();
+    }
     
     // Close dropdowns on click outside
     const handleClickOutside = () => setActiveMessageMenu(null);
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
-  }, []);
+  }, [currentUser]);
+
+  // Real-time Subscription for new messages
+  useEffect(() => {
+    if (!selectedConversation) return;
+
+    const channel = supabase
+      .channel('chat_updates')
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'messages', 
+        filter: `conversation_id=eq.${selectedConversation.id}` 
+      }, (payload) => {
+        setMessages((prev) => [...prev, payload.new]);
+        markMessagesAsRead(selectedConversation.id);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedConversation]);
 
   // Smart Auto-Select Logic
   useEffect(() => {
@@ -58,16 +82,61 @@ export default function ChatSystem({ currentUser, initialChatId }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  // --- DIRECT DATABASE FETCHING (Bypasses API) ---
+
   const fetchConversations = async () => {
     try {
-      const res = await fetch('/api/messages/conversations');
-      const data = await res.json();
-      
-      // Filter out conversations deleted by current user
-      const visibleData = (data || []).filter(c => 
+      setLoading(true);
+      // 1. Get raw conversations
+      const { data: rawConvs, error } = await supabase
+        .from('conversations')
+        .select(`
+            *,
+            user1:user1_id(id, username, avatar_url, role),
+            user2:user2_id(id, username, avatar_url, role)
+        `)
+        .or(`user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}`)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      // 2. Filter deleted
+      const visibleConvs = rawConvs.filter(c => 
         !c.deleted_by || !c.deleted_by.includes(currentUser.id)
       );
-      setConversations(visibleData);
+
+      // 3. Enrich with last message
+      const enriched = await Promise.all(visibleConvs.map(async (conv) => {
+         const otherUser = conv.user1.id === currentUser.id ? conv.user2 : conv.user1;
+         
+         // Get last message
+         const { data: lastMsgs } = await supabase
+            .from('messages')
+            .select('content, created_at, deleted_by')
+            .eq('conversation_id', conv.id)
+            .order('created_at', { ascending: false })
+            .limit(5); // Fetch a few to handle deleted ones
+
+         const validLastMsg = lastMsgs?.find(m => !m.deleted_by || !m.deleted_by.includes(currentUser.id));
+
+         // Get unread count
+         const { count } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('conversation_id', conv.id)
+            .eq('sender_id', otherUser.id)
+            .eq('read', false);
+
+         return {
+            id: conv.id,
+            otherUser,
+            lastMessage: validLastMsg?.content || 'No messages yet',
+            lastMessageTime: validLastMsg?.created_at || conv.created_at,
+            unreadCount: count || 0
+         };
+      }));
+
+      setConversations(enriched);
     } catch (error) {
       console.error('Error fetching conversations:', error);
     } finally {
@@ -77,9 +146,12 @@ export default function ChatSystem({ currentUser, initialChatId }) {
 
   const fetchAllUsers = async () => {
     try {
-      const res = await fetch('/api/messages/users');
-      const data = await res.json();
-      setAllUsers(data || []);
+      const { data, error } = await supabase
+        .from('profiles') // Assuming your table is 'profiles', change to 'users' if needed
+        .select('id, username, avatar_url, role')
+        .neq('id', currentUser.id);
+        
+      if (data) setAllUsers(data);
     } catch (error) {
       console.error('Error fetching users:', error);
     }
@@ -87,14 +159,18 @@ export default function ChatSystem({ currentUser, initialChatId }) {
 
   const fetchMessages = async (conversationId) => {
     try {
-      const res = await fetch(`/api/messages/list?conversationId=${conversationId}`);
-      const data = await res.json();
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
       
-      // Filter out messages deleted by current user
-      const visibleMessages = (data || []).filter(m => 
+      const visible = data.filter(m => 
         !m.deleted_by || !m.deleted_by.includes(currentUser.id)
       );
-      setMessages(visibleMessages);
+      setMessages(visible);
     } catch (error) {
       console.error('Error fetching messages:', error);
     }
@@ -102,41 +178,43 @@ export default function ChatSystem({ currentUser, initialChatId }) {
 
   const markMessagesAsRead = async (conversationId) => {
     try {
-      await fetch('/api/messages/mark-read', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ conversationId })
-      });
-      fetchConversations(); 
+      await supabase
+        .from('messages')
+        .update({ read: true })
+        .eq('conversation_id', conversationId)
+        .neq('sender_id', currentUser.id)
+        .eq('read', false);
+        
+      // Update local badge count
+      setConversations(prev => prev.map(c => 
+         c.id === conversationId ? { ...c, unreadCount: 0 } : c
+      ));
     } catch (error) {
-      console.error('Error marking messages as read:', error);
+      console.error('Error marking read:', error);
     }
   };
 
   // --- ACTIONS ---
 
   const deleteConversation = async () => {
-    if(!selectedConversation || !window.confirm("Delete this conversation? It will disappear from your list.")) return;
-
+    if(!selectedConversation || !window.confirm("Delete this conversation?")) return;
+    
     try {
         const { error } = await supabase.rpc('delete_conversation_for_user', {
             conv_id: selectedConversation.id,
             user_id: currentUser.id
         });
-
         if (error) throw error;
-        
         setSelectedConversation(null);
         fetchConversations();
     } catch (error) {
-        console.error("Failed to delete conversation:", error.message);
-        alert("Could not delete conversation.");
+        console.error("Failed to delete:", error);
     }
   };
 
   const deleteMessage = async (messageId, mode) => {
     try {
-        // 1. Optimistic Update
+        // Optimistic
         if (mode === 'me') {
             setMessages(prev => prev.filter(m => m.id !== messageId));
         } else {
@@ -145,31 +223,12 @@ export default function ChatSystem({ currentUser, initialChatId }) {
             ));
         }
 
-        // 2. Database Call via RPC
-        let error;
         if (mode === 'everyone') {
-             const { error: err } = await supabase.rpc('unsend_message', {
-                msg_id: messageId,
-                user_id: currentUser.id
-            });
-            error = err;
+             await supabase.rpc('unsend_message', { msg_id: messageId, user_id: currentUser.id });
         } else {
-             const { error: err } = await supabase.rpc('delete_message_for_user', {
-                msg_id: messageId,
-                user_id: currentUser.id
-            });
-            error = err;
+             await supabase.rpc('delete_message_for_user', { msg_id: messageId, user_id: currentUser.id });
         }
-
-        if (error) {
-            console.error("Database error:", error);
-            // Revert if needed, simply re-fetching handles it
-            if (selectedConversation) fetchMessages(selectedConversation.id);
-        } else {
-            // Update sidebar to update snippets
-            fetchConversations();
-        }
-
+        fetchConversations();
     } catch (error) {
         console.error("Failed to delete message", error);
     }
@@ -180,23 +239,27 @@ export default function ChatSystem({ currentUser, initialChatId }) {
 
     setSending(true);
     try {
-      const res = await fetch('/api/messages/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationId: selectedConversation.id,
-          content: newMessage.trim()
+      const { data, error } = await supabase
+        .from('messages')
+        .insert({
+            conversation_id: selectedConversation.id,
+            sender_id: currentUser.id,
+            content: newMessage.trim()
         })
-      });
+        .select()
+        .single();
 
-      if (res.ok) {
-        const sentMessage = await res.json();
-        setMessages([...messages, sentMessage]);
-        setNewMessage('');
-        fetchConversations(); 
+      if (error) throw error;
+
+      // Optimistic update handled by Subscription, but fallback here:
+      if (!messages.find(m => m.id === data.id)) {
+          setMessages([...messages, data]);
       }
+      
+      setNewMessage('');
+      fetchConversations(); // Update snippet
     } catch (error) {
-      console.error('Error sending message:', error);
+      console.error('Error sending:', error);
     } finally {
       setSending(false);
     }
@@ -204,20 +267,50 @@ export default function ChatSystem({ currentUser, initialChatId }) {
 
   const startNewConversation = async (otherUserId) => {
     try {
-      const res = await fetch('/api/messages/start-conversation', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ otherUserId })
-      });
+      // Check existing
+      const { data: existing } = await supabase
+        .from('conversations')
+        .select(`
+            *,
+            user1:user1_id(*),
+            user2:user2_id(*)
+        `)
+        .or(`and(user1_id.eq.${currentUser.id},user2_id.eq.${otherUserId}),and(user1_id.eq.${otherUserId},user2_id.eq.${currentUser.id})`)
+        .maybeSingle();
 
-      if (res.ok) {
-        const conversation = await res.json();
-        setSelectedConversation(conversation);
-        setActiveTab('chats');
-        fetchConversations();
+      if (existing) {
+         // reconstruct the object shape we expect
+         const otherUser = existing.user1.id === currentUser.id ? existing.user2 : existing.user1;
+         setSelectedConversation({
+             id: existing.id,
+             otherUser,
+             lastMessage: '',
+             unreadCount: 0
+         });
+      } else {
+         // Create new
+         const { data: newConv, error } = await supabase
+            .from('conversations')
+            .insert({ user1_id: currentUser.id, user2_id: otherUserId })
+            .select(`*, user1:user1_id(*), user2:user2_id(*)`)
+            .single();
+            
+         if (error) throw error;
+         
+         const otherUser = newConv.user1.id === currentUser.id ? newConv.user2 : newConv.user1;
+         const formatted = {
+             id: newConv.id,
+             otherUser,
+             lastMessage: 'New conversation',
+             unreadCount: 0
+         };
+         
+         setConversations([formatted, ...conversations]);
+         setSelectedConversation(formatted);
       }
+      setActiveTab('chats');
     } catch (error) {
-      console.error('Error starting conversation:', error);
+      console.error('Error starting chat:', error);
     }
   };
 
@@ -233,6 +326,7 @@ export default function ChatSystem({ currentUser, initialChatId }) {
   });
 
   const formatTime = (timestamp) => {
+    if (!timestamp) return '';
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now - date;
@@ -347,8 +441,6 @@ export default function ChatSystem({ currentUser, initialChatId }) {
                       {messages.map((msg, idx) => {
                         const isOwn = msg.sender_id === currentUser.id;
                         const showAvatar = idx === 0 || messages[idx - 1].sender_id !== msg.sender_id;
-                        
-                        // --- CHECK IF THIS IS THE FIRST MESSAGE ---
                         const isFirst = idx === 0;
 
                         return (
@@ -386,17 +478,12 @@ export default function ChatSystem({ currentUser, initialChatId }) {
                                 </div>
                             )}
 
-                            {/* --- UPDATED POPUP MENU WITH DIRECTION LOGIC --- */}
+                            {/* Menu */}
                             {activeMessageMenu === msg.id && (
                                 <div className={`absolute z-10 bg-white border border-gray-200 rounded-lg shadow-xl py-1 min-w-[140px] animate-in fade-in zoom-in-95
                                     ${isOwn ? 'right-0' : 'left-8'}
                                     ${isFirst ? 'top-8' : 'bottom-8'} 
                                 `}>
-                                    {/* Explanation of Fix:
-                                       If isFirst is true (top message), we use 'top-8' to push it DOWN.
-                                       Otherwise, we use 'bottom-8' to push it UP.
-                                    */}
-
                                     <button onClick={() => { deleteMessage(msg.id, 'me'); setActiveMessageMenu(null); }} className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2">
                                         <Trash2 size={14} /> Delete for me
                                     </button>

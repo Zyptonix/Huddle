@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/router'
 import { supabase } from '../../lib/supabaseClient'
-import { User, Mail, Lock, Phone, Home, Hash, AlertCircle, CheckCircle, UserPlus, Shield, Briefcase, Heart, Trophy, Medal } from 'lucide-react'
+import { User, Mail, Lock, Phone, Home, Hash, AlertCircle, CheckCircle, UserPlus, Shield, Briefcase, Heart, Trophy, Medal, Activity } from 'lucide-react'
 import ImageUploader from '../common/ImageUploader'
 import PasswordStrength from '../common/PasswordStrength'
 import GoogleButton from './GoogleButton'
@@ -29,6 +29,9 @@ export default function RegisterForm() {
   const [prevTeams, setPrevTeams] = useState('')
   const [achievements, setAchievements] = useState('')
   const [prevTournaments, setPrevTournaments] = useState('')
+  
+  // --- NEW: Sport State ---
+  const [sport, setSport] = useState('football') 
 
   const [croppedImageFile, setCroppedImageFile] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -42,7 +45,6 @@ export default function RegisterForm() {
 
     try {
       // --- FIX: Sanitize Integers ---
-      // Convert empty strings to null to prevent Database Type Errors
       const sanitizedAge = age ? parseInt(age) : null
       const sanitizedJersey = (role === 'player' && jerseyNumber) ? parseInt(jerseyNumber) : null
 
@@ -52,6 +54,9 @@ export default function RegisterForm() {
           data: { 
             role, username, phone, address, 
             age: sanitizedAge,
+            // --- NEW: Pass Sport to Metadata ---
+            sport: role === 'player' ? sport : null, 
+            
             // Pass role-specific data to trigger
             jersey_number: sanitizedJersey,
             positions_preferred: role === 'player' ? positions : null,
@@ -154,33 +159,51 @@ export default function RegisterForm() {
 
            {/* --- DYNAMIC SLIDE-DOWN SECTION --- */}
            <div className={`transition-all duration-500 overflow-hidden ${role !== 'fan' ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
-              
-              {/* Player Specifics */}
-              {role === 'player' && (
-                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                   <div className="grid grid-cols-2 gap-4">
-                      <Input label="Jersey Number" type="number" value={jerseyNumber} onChange={e => setJerseyNumber(e.target.value)} icon={<Hash size={18}/>} />
-                      <Input label="Preferred Positions" value={positions} onChange={e => setPositions(e.target.value)} placeholder="e.g. ST, RW" />
-                   </div>
-                   <Input label="Previous Teams" value={prevTeams} onChange={e => setPrevTeams(e.target.value)} placeholder="e.g. Wildcats FC, City United" icon={<UserPlus size={18}/>} />
-                   <Input label="Notable Achievements" value={achievements} onChange={e => setAchievements(e.target.value)} placeholder="e.g. MVP 2023, Golden Boot" icon={<Trophy size={18}/>} />
-                </div>
-              )}
+             
+             {/* Player Specifics */}
+             {role === 'player' && (
+               <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                  <div className="grid grid-cols-2 gap-4">
+                     <Input label="Jersey Number" type="number" value={jerseyNumber} onChange={e => setJerseyNumber(e.target.value)} icon={<Hash size={18}/>} />
+                     <Input label="Preferred Positions" value={positions} onChange={e => setPositions(e.target.value)} placeholder="e.g. ST, RW" />
+                  </div>
+                  
+                  {/* --- Sport Dropdown (Restricted Options) --- */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Sport</label>
+                    <div className="relative">
+                        <Activity className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                        <select 
+                            value={sport} 
+                            onChange={(e) => setSport(e.target.value)}
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none bg-white text-gray-800"
+                        >
+                            <option value="football">Football</option>
+                            <option value="cricket">Cricket</option>
+                            <option value="basketball">Basketball</option>
+                        </select>
+                    </div>
+                  </div>
 
-              {/* Coach Specifics */}
-              {role === 'coach' && (
-                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                   <Input label="Previous Teams Managed" value={prevTeams} onChange={e => setPrevTeams(e.target.value)} placeholder="List teams you have coached..." icon={<Briefcase size={18}/>} />
-                   <Input label="Coaching Achievements" value={achievements} onChange={e => setAchievements(e.target.value)} placeholder="e.g. League Winner 2022" icon={<Medal size={18}/>} />
-                </div>
-              )}
+                  <Input label="Previous Teams" value={prevTeams} onChange={e => setPrevTeams(e.target.value)} placeholder="e.g. Wildcats FC, City United" icon={<UserPlus size={18}/>} />
+                  <Input label="Notable Achievements" value={achievements} onChange={e => setAchievements(e.target.value)} placeholder="e.g. MVP 2023, Golden Boot" icon={<Trophy size={18}/>} />
+               </div>
+             )}
 
-              {/* Organizer Specifics */}
-              {role === 'organizer' && (
-                <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                   <Input label="Previous Tournaments" value={prevTournaments} onChange={e => setPrevTournaments(e.target.value)} placeholder="List major events you organized..." icon={<Trophy size={18}/>} />
-                </div>
-              )}
+             {/* Coach Specifics */}
+             {role === 'coach' && (
+               <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                  <Input label="Previous Teams Managed" value={prevTeams} onChange={e => setPrevTeams(e.target.value)} placeholder="List teams you have coached..." icon={<Briefcase size={18}/>} />
+                  <Input label="Coaching Achievements" value={achievements} onChange={e => setAchievements(e.target.value)} placeholder="e.g. League Winner 2022" icon={<Medal size={18}/>} />
+               </div>
+             )}
+
+             {/* Organizer Specifics */}
+             {role === 'organizer' && (
+               <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                  <Input label="Previous Tournaments" value={prevTournaments} onChange={e => setPrevTournaments(e.target.value)} placeholder="List major events you organized..." icon={<Trophy size={18}/>} />
+               </div>
+             )}
            </div>
         </div>
 

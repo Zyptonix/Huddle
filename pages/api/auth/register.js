@@ -11,9 +11,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { email, password, username, role, phone, age, address } = req.body
+    // 1. Destructure sport from the request body
+    const { email, password, username, role, phone, age, address, sport } = req.body
 
-    // 1️⃣ Create user in Supabase Auth
+    // 2. Create user in Supabase Auth
     const { data: authUser, error: signUpError } = await supabase.auth.signUp({
       email,
       password
@@ -28,14 +29,15 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Auth user not returned" })
     }
 
-    // 2️⃣ Insert into profiles table
+    // 3. Insert into profiles table with the new sport field
     const { error: profileError } = await supabase.from("profiles").insert({
       id: userId,
       username,
       role,
       phone,
       age,
-      address
+      address,
+      sport: role === 'player' ? sport : null // Only save sport if role is player
     })
 
     if (profileError) {
@@ -49,4 +51,3 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "Server error" })
   }
 }
-

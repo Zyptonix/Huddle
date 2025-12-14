@@ -6,6 +6,7 @@ import {
   StopCircle, CheckCircle 
 } from 'lucide-react';
 
+// --- MULTI-SPORT CONFIGURATION ---
 const SPORTS_CONFIG = {
   football: {
     gradient: 'from-emerald-600 to-teal-900',
@@ -29,18 +30,42 @@ const SPORTS_CONFIG = {
     accent: 'text-orange-400',
     actions: {
       primary: [
-        { label: '+3', points: 3, type: '3pt', reqPlayer: true, icon: '👌' },
-        { label: '+2', points: 2, type: '2pt', reqPlayer: true, icon: '🏀' },
-        { label: '+1', points: 1, type: 'ft', reqPlayer: true, icon: 'wd' },
+        { label: '+3 PTS', points: 3, type: '3pt', reqPlayer: true, icon: '👌' },
+        { label: '+2 PTS', points: 2, type: '2pt', reqPlayer: true, icon: '🏀' },
+        { label: 'Free Throw', points: 1, type: 'ft', reqPlayer: true, icon: '1️⃣' },
       ],
       secondary: [
         { label: 'Rebound', type: 'reb', reqPlayer: true },
+        { label: 'Assist', type: 'assist', reqPlayer: true },
         { label: 'Steal', type: 'steal', reqPlayer: true },
         { label: 'Block', type: 'block', reqPlayer: true },
+        { label: 'Turnover', type: 'turnover', reqPlayer: true },
       ],
       cards: [
-        { label: 'Foul', type: 'foul_p', reqPlayer: true, color: 'bg-slate-600' },
+        { label: 'Foul', type: 'foul_p', reqPlayer: true, color: 'bg-slate-600 text-white' },
         { label: 'Timeout', type: 'timeout', reqPlayer: false, color: 'bg-yellow-600 text-black' },
+      ]
+    }
+  },
+  cricket: {
+    gradient: 'from-blue-600 to-indigo-900',
+    accent: 'text-blue-400',
+    actions: {
+      primary: [
+        { label: '6 RUNS', points: 6, type: 'six', reqPlayer: true, icon: '🏏' },
+        { label: '4 RUNS', points: 4, type: 'four', reqPlayer: true, icon: '⚡' },
+        { label: 'WICKET', points: 0, type: 'wicket', reqPlayer: true, icon: '☝️' },
+      ],
+      secondary: [
+        { label: '1 Run', points: 1, type: 'single', reqPlayer: true },
+        { label: '2 Runs', points: 2, type: 'double', reqPlayer: true },
+        { label: 'Wide (+1)', points: 1, type: 'wide', reqPlayer: false },
+        { label: 'No Ball (+1)', points: 1, type: 'nb', reqPlayer: false },
+        { label: 'Dot Ball', points: 0, type: 'dot', reqPlayer: true },
+      ],
+      cards: [
+        { label: 'Review', type: 'review', reqPlayer: false, color: 'bg-purple-600 text-white' },
+        { label: 'Drinks', type: 'drinks', reqPlayer: false, color: 'bg-teal-600 text-white' },
       ]
     }
   }
@@ -49,7 +74,8 @@ const SPORTS_CONFIG = {
 export default function LiveOperatorConsole({ match, sport = 'football' }) {
   if (!match) return <div className="text-white p-10">Loading Console...</div>;
 
-  const config = SPORTS_CONFIG[sport] || SPORTS_CONFIG.football;
+  // Safe fallback to football if sport is missing or invalid
+  const config = SPORTS_CONFIG[sport?.toLowerCase()] || SPORTS_CONFIG.football;
   
   // State
   const [scores, setScores] = useState({ a: match.score_a || 0, b: match.score_b || 0 });
@@ -173,7 +199,7 @@ export default function LiveOperatorConsole({ match, sport = 'football' }) {
         
         {/* End Match Button */}
         <div className="flex justify-between items-center mb-4 relative z-20">
-           <span className="px-2 py-1 bg-slate-800 rounded text-xs font-bold text-slate-400 border border-slate-700">OPERATOR VIEW</span>
+           <span className="px-2 py-1 bg-slate-800 rounded text-xs font-bold text-slate-400 border border-slate-700">OPERATOR VIEW • {sport.toUpperCase()}</span>
            <button onClick={endMatch} className="flex items-center gap-2 px-4 py-2 bg-red-900/50 hover:bg-red-900 text-red-200 border border-red-800 rounded-lg text-xs font-bold transition-all">
              <StopCircle size={14} /> END MATCH
            </button>
@@ -215,16 +241,21 @@ export default function LiveOperatorConsole({ match, sport = 'football' }) {
            <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800/50 backdrop-blur-sm">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4">Home Actions</h3>
               <div className="space-y-3">
+                 {/* PRIMARY ACTIONS */}
                  {config.actions.primary.map((act, i) => (
                     <button key={i} onClick={() => handleAction(act, match.team_a_id)} className={`w-full h-16 rounded-xl font-bold text-xl flex items-center justify-center gap-2 transition-transform active:scale-95 bg-gradient-to-r ${config.gradient} shadow-lg text-white border border-white/10`}>
                        <span>{act.icon}</span> {act.label}
                     </button>
                  ))}
+                 
+                 {/* SECONDARY ACTIONS */}
                  <div className="grid grid-cols-2 gap-2">
                     {config.actions.secondary.map((act, i) => (
                        <button key={i} onClick={() => handleAction(act, match.team_a_id)} className="h-12 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-medium text-sm transition-colors">{act.label}</button>
                     ))}
                  </div>
+                 
+                 {/* CARDS/EXTRAS */}
                  <div className="grid grid-cols-2 gap-2 pt-2">
                     {config.actions.cards.map((act, i) => (
                        <button key={i} onClick={() => handleAction(act, match.team_a_id)} className={`h-10 rounded-lg font-bold text-xs ${act.color}`}>{act.label}</button>
@@ -233,10 +264,10 @@ export default function LiveOperatorConsole({ match, sport = 'football' }) {
               </div>
            </div>
            
-           {/* Possession Slider */}
+           {/* Possession/Extra Control */}
            <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl">
               <div className="flex justify-between text-xs font-bold text-slate-400 mb-2">
-                 <span>POSSESSION</span>
+                 <span>POSSESSION / MOMENTUM</span>
               </div>
               <input type="range" min="0" max="100" defaultValue="50" onChange={(e) => supabase.from('matches').update({ details: { possession_a: parseInt(e.target.value) } }).eq('id', match.id)} className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
            </div>
@@ -253,14 +284,14 @@ export default function LiveOperatorConsole({ match, sport = 'football' }) {
                        <div className="flex-1">
                           <div className="text-white font-medium">{ev.message}</div>
                        </div>
-                       {ev.type === 'goal' && <Trophy size={16} className="text-yellow-400" />}
+                       {(ev.type === 'goal' || ev.type === '3pt' || ev.type === 'six') && <Trophy size={16} className="text-yellow-400" />}
                     </div>
                  ))}
                  {events.length === 0 && <div className="text-center text-slate-600 mt-20">Match Ready. Start Timer.</div>}
               </div>
               {/* Quick Chat */}
               <div className="absolute bottom-0 left-0 w-full bg-slate-800/90 backdrop-blur border-t border-slate-700 p-3 flex gap-2 overflow-x-auto">
-                 {['Great Save', 'Injury', 'VAR', 'Crowd Wild'].map(msg => (
+                 {['Great Play', 'Injury', 'Review', 'Crowd Wild'].map(msg => (
                     <button key={msg} onClick={() => commitEvent({ type: 'msg', label: msg }, null, null)} className="whitespace-nowrap px-4 py-2 rounded-full bg-slate-700 hover:bg-slate-600 text-xs text-white font-medium border border-slate-600">{msg}</button>
                  ))}
               </div>
@@ -272,16 +303,21 @@ export default function LiveOperatorConsole({ match, sport = 'football' }) {
            <div className="bg-slate-900/50 p-4 rounded-2xl border border-slate-800/50 backdrop-blur-sm">
               <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-4 text-right">Away Actions</h3>
               <div className="space-y-3">
+                 {/* PRIMARY ACTIONS */}
                  {config.actions.primary.map((act, i) => (
                     <button key={i} onClick={() => handleAction(act, match.team_b_id)} className={`w-full h-16 rounded-xl font-bold text-xl flex items-center justify-center gap-2 transition-transform active:scale-95 bg-slate-800 border border-slate-700 shadow-lg text-white hover:bg-slate-700`}>
                        <span>{act.icon}</span> {act.label}
                     </button>
                  ))}
+                 
+                 {/* SECONDARY ACTIONS */}
                  <div className="grid grid-cols-2 gap-2">
                     {config.actions.secondary.map((act, i) => (
                        <button key={i} onClick={() => handleAction(act, match.team_b_id)} className="h-12 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-medium text-sm transition-colors">{act.label}</button>
                     ))}
                  </div>
+                 
+                 {/* CARDS/EXTRAS */}
                  <div className="grid grid-cols-2 gap-2 pt-2">
                     {config.actions.cards.map((act, i) => (
                        <button key={i} onClick={() => handleAction(act, match.team_b_id)} className={`h-10 rounded-lg font-bold text-xs ${act.color}`}>{act.label}</button>

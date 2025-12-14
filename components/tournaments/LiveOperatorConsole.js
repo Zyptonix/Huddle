@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../../lib/supabaseClient'; // Adjust path if needed
+import { supabase } from '../../lib/supabaseClient'; 
 import { useRouter } from 'next/router';
 import { 
   Play, Pause, StopCircle, 
-  Trophy, Activity, Users, ArrowLeft
+  Trophy, Activity, Users, ArrowLeft,
+  Circle, XOctagon, Flag, Hand
 } from 'lucide-react';
 
-// --- VISUAL CONFIGURATION (Light Mode Updated) ---
+// --- MULTI-SPORT CONFIGURATION ---
 const SPORTS_CONFIG = {
   football: {
     actions: {
@@ -24,12 +25,55 @@ const SPORTS_CONFIG = {
         { label: 'Red Card', type: 'card_red', reqPlayer: true, color: 'bg-red-600 text-white hover:bg-red-700' },
       ]
     }
+  },
+  basketball: {
+    actions: {
+      primary: [
+        { label: '+3 POINTS', points: 3, type: '3pt', reqPlayer: true, icon: <Trophy size={20} />, color: 'bg-indigo-500 hover:bg-indigo-600 text-white shadow-indigo-200' },
+        { label: '+2 POINTS', points: 2, type: '2pt', reqPlayer: true, icon: <Activity size={20} />, color: 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-200' },
+      ],
+      secondary: [
+        { label: 'Free Throw (+1)', points: 1, type: 'ft', reqPlayer: true, color: 'bg-white hover:bg-orange-50 border-orange-200 text-orange-700' },
+        { label: 'Rebound', type: 'rebound', reqPlayer: true, color: 'bg-white hover:bg-blue-50 border-blue-200 text-blue-700' },
+        { label: 'Assist', type: 'assist', reqPlayer: true, color: 'bg-white hover:bg-purple-50 border-purple-200 text-purple-700' },
+        { label: 'Steal', type: 'steal', reqPlayer: true, color: 'bg-white hover:bg-teal-50 border-teal-200 text-teal-700' },
+        { label: 'Block', type: 'block', reqPlayer: true, color: 'bg-white hover:bg-rose-50 border-rose-200 text-rose-700' },
+        { label: 'Turnover', type: 'turnover', reqPlayer: true, color: 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600' },
+      ],
+      cards: [
+        { label: 'Personal Foul', type: 'foul_p', reqPlayer: true, color: 'bg-orange-100 text-orange-800 border border-orange-200 hover:bg-orange-200' },
+        { label: 'Tech Foul', type: 'foul_t', reqPlayer: true, color: 'bg-red-100 text-red-800 border border-red-200 hover:bg-red-200' },
+        { label: 'Timeout', type: 'timeout', reqPlayer: false, color: 'bg-slate-800 text-white hover:bg-slate-700' },
+      ]
+    }
+  },
+  cricket: {
+    actions: {
+      primary: [
+        { label: '6 RUNS', points: 6, type: 'six', reqPlayer: true, icon: <Trophy size={20} />, color: 'bg-purple-600 hover:bg-purple-700 text-white shadow-purple-200' },
+        { label: '4 RUNS', points: 4, type: 'four', reqPlayer: true, icon: <Activity size={20} />, color: 'bg-blue-500 hover:bg-blue-600 text-white shadow-blue-200' },
+      ],
+      secondary: [
+        { label: '1 Run', points: 1, type: 'single', reqPlayer: true, color: 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700' },
+        { label: '2 Runs', points: 2, type: 'double', reqPlayer: true, color: 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700' },
+        { label: 'Wide (+1)', points: 1, type: 'wide', reqPlayer: false, color: 'bg-white hover:bg-amber-50 border-amber-200 text-amber-700' },
+        { label: 'No Ball (+1)', points: 1, type: 'noball', reqPlayer: false, color: 'bg-white hover:bg-red-50 border-red-200 text-red-700' },
+        { label: 'Dot Ball', type: 'dot', reqPlayer: true, color: 'bg-white hover:bg-gray-100 border-gray-300 text-gray-500' },
+      ],
+      cards: [
+        { label: 'WICKET', type: 'wicket', reqPlayer: true, color: 'bg-red-600 text-white hover:bg-red-700 border-red-700' },
+        { label: 'Review', type: 'review', reqPlayer: false, color: 'bg-blue-100 text-blue-800 border border-blue-200 hover:bg-blue-200' },
+        { label: 'Drinks', type: 'drinks', reqPlayer: false, color: 'bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200' },
+      ]
+    }
   }
 };
 
 export default function LiveOperatorConsole({ match, sport = 'football' }) {
   const router = useRouter();
-  const config = SPORTS_CONFIG[sport] || SPORTS_CONFIG.football;
+  
+  // Safe fallback to football if sport is undefined or invalid
+  const config = SPORTS_CONFIG[sport?.toLowerCase()] || SPORTS_CONFIG.football;
   
   // --- STATE ---
   const [matchState, setMatchState] = useState(match);
@@ -303,7 +347,7 @@ export default function LiveOperatorConsole({ match, sport = 'football' }) {
           ))}
        </div>
        
-       {/* Card Actions */}
+       {/* Card/Extra Actions */}
        <div className="mt-auto grid grid-cols-2 gap-2">
           {config.actions.cards.map((act, i) => (
              <button key={i} disabled={processing} onClick={() => handleActionClick(act, side)} 
@@ -349,38 +393,38 @@ export default function LiveOperatorConsole({ match, sport = 'football' }) {
       {/* MAIN CONTENT GRID */}
       <div className="flex-1 grid grid-cols-12 gap-0 overflow-hidden">
          
-         {/* LEFT: ROSTER (Light Mode) */}
+         {/* LEFT: ROSTER */}
          <div className="hidden lg:block col-span-3 bg-white border-r border-slate-200 p-4 overflow-y-auto">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Users size={14}/> Active Rosters</h3>
             <div className="space-y-6">
                <div>
                   <div className="text-emerald-600 text-xs font-bold mb-2 uppercase border-b border-emerald-100 pb-1">{matchState.teams_a?.name}</div>
                   <div className="space-y-1">
-                     {roster.filter(p => p.teamId === matchState.team_a_id).map(p => (
-                        <div key={p.id} className="flex items-center justify-between text-sm p-2 rounded hover:bg-slate-50 transition-colors cursor-default">
-                           <span className="text-slate-400 font-mono w-6 font-bold">{p.number}</span>
-                           <span className="text-slate-700 truncate flex-1 font-medium">{p.name}</span>
-                           {p.isStarter && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm"></span>}
-                        </div>
-                     ))}
+                      {roster.filter(p => p.teamId === matchState.team_a_id).map(p => (
+                         <div key={p.id} className="flex items-center justify-between text-sm p-2 rounded hover:bg-slate-50 transition-colors cursor-default">
+                            <span className="text-slate-400 font-mono w-6 font-bold">{p.number}</span>
+                            <span className="text-slate-700 truncate flex-1 font-medium">{p.name}</span>
+                            {p.isStarter && <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm"></span>}
+                         </div>
+                      ))}
                   </div>
                </div>
                <div>
                   <div className="text-indigo-600 text-xs font-bold mb-2 uppercase border-b border-indigo-100 pb-1">{matchState.teams_b?.name}</div>
                   <div className="space-y-1">
-                     {roster.filter(p => p.teamId === matchState.team_b_id).map(p => (
-                        <div key={p.id} className="flex items-center justify-between text-sm p-2 rounded hover:bg-slate-50 transition-colors cursor-default">
-                           <span className="text-slate-400 font-mono w-6 font-bold">{p.number}</span>
-                           <span className="text-slate-700 truncate flex-1 font-medium">{p.name}</span>
-                           {p.isStarter && <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-sm"></span>}
-                        </div>
-                     ))}
+                      {roster.filter(p => p.teamId === matchState.team_b_id).map(p => (
+                         <div key={p.id} className="flex items-center justify-between text-sm p-2 rounded hover:bg-slate-50 transition-colors cursor-default">
+                            <span className="text-slate-400 font-mono w-6 font-bold">{p.number}</span>
+                            <span className="text-slate-700 truncate flex-1 font-medium">{p.name}</span>
+                            {p.isStarter && <span className="w-2 h-2 rounded-full bg-indigo-400 shadow-sm"></span>}
+                         </div>
+                      ))}
                   </div>
                </div>
             </div>
          </div>
 
-         {/* CENTER: ACTION BOARD (Light Mode) */}
+         {/* CENTER: ACTION BOARD */}
          <div className="col-span-12 lg:col-span-6 bg-slate-100 p-4 lg:p-8 overflow-y-auto">
             <div className="grid grid-cols-2 gap-6 h-full max-w-2xl mx-auto">
                <TeamControls team="a" teamData={matchState.teams_a} side="a" />
@@ -388,7 +432,7 @@ export default function LiveOperatorConsole({ match, sport = 'football' }) {
             </div>
          </div>
 
-         {/* RIGHT: EVENT FEED (Light Mode) */}
+         {/* RIGHT: EVENT FEED */}
          <div className="hidden lg:block col-span-3 bg-white border-l border-slate-200 flex flex-col">
              <div className="p-4 border-b border-slate-200 bg-white">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Activity size={14}/> Match Feed</h3>
@@ -412,7 +456,7 @@ export default function LiveOperatorConsole({ match, sport = 'football' }) {
          </div>
       </div>
 
-      {/* PLAYER SELECTION MODAL (Light Mode) */}
+      {/* PLAYER SELECTION MODAL */}
       {modalOpen && (
          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh] border border-slate-200">

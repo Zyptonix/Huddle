@@ -163,27 +163,41 @@ export default function TournamentDashboard() {
     }
   }
 
-  // 2. The check (Determines if we need the modal)
+
+// 2. The check (Determines if we need the modal)
   const handleJoinTournament = async () => {
-    // Select ALL teams, not just .single()
+    // Select ALL teams, make sure to include 'sport'
     const { data: myTeams } = await supabase
         .from('teams')
-        .select('id, name, logo_url')
+        .select('id, name, logo_url, sport') // <--- Added 'sport'
         .eq('owner_id', user.id)
 
     if (!myTeams || myTeams.length === 0) {
         return alert("You need to create a team first!")
     }
 
-    if (myTeams.length === 1) {
-        // If user has only 1 team, join immediately
-        registerTeam(myTeams[0].id)
+    // --- SPORT CHECK FILTER ---
+    // Only keep teams that match this tournament's sport
+    const eligibleTeams = myTeams.filter(t => 
+        t.sport && t.sport.toLowerCase() === tournament.sport.toLowerCase()
+    );
+
+    // If they have teams, but none match the sport:
+    if (eligibleTeams.length === 0) {
+        return alert(`You cannot join a ${tournament.sport} tournament because you only have ${myTeams[0].sport} teams.`)
+    }
+    // --------------------------
+
+    if (eligibleTeams.length === 1) {
+        // If user has only 1 eligible team, join immediately
+        registerTeam(eligibleTeams[0].id)
     } else {
-        // If user has multiple teams, show the selector
-        setTeamsToSelect(myTeams)
+        // If user has multiple eligible teams, show the selector with ONLY those teams
+        setTeamsToSelect(eligibleTeams)
         setShowTeamSelector(true)
     }
   }
+  
 
   const handleAddVenue = async () => {
     if (!newVenue) return

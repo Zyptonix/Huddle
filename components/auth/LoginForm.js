@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { supabase } from '../../lib/supabaseClient'
-import { LogIn, Mail, Lock, UserPlus, AlertCircle } from 'lucide-react'
+import { LogIn, Mail, Lock, UserPlus } from 'lucide-react'
 import Input from '../ui/Input'
 import Button from '../ui/Button'
 import Alert from '../ui/Alert'
@@ -19,9 +19,42 @@ export default function LoginForm() {
     e.preventDefault()
     setError(null)
     setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) setError(error.message)
-    else router.push('/dashboard')
+
+    console.log("--- 1. STARTING LOGIN ATTEMPT ---");
+    console.log("Email:", email);
+
+    // Perform the login
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (error) {
+      console.error("--- LOGIN FAILED ---");
+      console.error("Error Message:", error.message);
+      console.error("Full Error Object:", error);
+      setError(error.message)
+    } else {
+      console.log("--- 2. LOGIN SUCCESSFUL ---");
+      console.log("Full Supabase Data:", data);
+      
+      // Check for critical session details
+      if (data?.session) {
+          console.log("✅ Session Found!");
+          console.log("Session ID:", data.session.user.id);
+          console.log("Access Token:", data.session.access_token); // <--- THIS is what your API needs
+          console.log("Refresh Token:", data.session.refresh_token);
+      } else {
+          console.warn("⚠️ Login succeeded, but no session object found immediately.");
+      }
+
+      if (data?.user) {
+          console.log("✅ User Object Found:", data.user);
+          console.log("User Role:", data.user.role);
+          console.log("User Metadata:", data.user.user_metadata);
+      }
+
+      console.log("--- 3. REDIRECTING TO DASHBOARD ---");
+      router.push('/dashboard')
+    }
+    
     setLoading(false)
   }
 
