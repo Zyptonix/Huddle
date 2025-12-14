@@ -6,7 +6,6 @@ import { supabase } from '../../../lib/supabaseClient'
 import Layout from '../../../components/ui/Layout'
 import LeagueTable from '../../../components/tournaments/LeagueTable'
 import KnockoutBracket from '@/components/tournaments/KnockoutBracket'
-// Add this to your imports
 import { generateBracket } from '@/lib/BracketGenerator'
 import { 
   Trophy, Calendar, Users, MapPin, 
@@ -39,6 +38,10 @@ export default function TournamentDashboard() {
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState({})
   const [newVenue, setNewVenue] = useState('')
+
+  // --- NEW: Multi-Team Selector State ---
+  const [showTeamSelector, setShowTeamSelector] = useState(false)
+  const [teamsToSelect, setTeamsToSelect] = useState([])
 
   // Permissions
   const isOrganizer = tournament?.organizer_id === user?.id
@@ -96,19 +99,15 @@ export default function TournamentDashboard() {
     }
   }
 
-
   const handleTeamAction = async (teamId, action) => {
-    // action should be 'approved' or 'rejected'
     try {
       const { error } = await supabase
-        .from('tournament_teams') // The join table
+        .from('tournament_teams')
         .update({ status: action })
         .eq('tournament_id', id)
-        .eq('team_id', teamId) // We identify the row by Tournament ID + Team ID
+        .eq('team_id', teamId)
 
       if (error) throw error
-      
-      // Refresh the list to show the new status
       fetchTournamentData()
       
     } catch (error) {
@@ -117,21 +116,46 @@ export default function TournamentDashboard() {
     }
   }
 
+  // --- FIXED JOIN LOGIC ---
 
-  const handleJoinTournament = async () => {
-    const { data: team } = await supabase.from('teams').select('id').eq('owner_id', user.id).single()
-    if (!team) return alert("You need to create a team first!")
-
+  // 1. The actual database insert (separated from the check)
+  const registerTeam = async (teamId) => {
     const { error } = await supabase.from('tournament_teams').insert({
         tournament_id: id,
-        team_id: team.id,
+        team_id: teamId,
         status: 'pending'
     })
     
-    if (error) alert(error.message)
-    else {
-        alert("Request sent!")
-        fetchTournamentData()
+    if (error) {
+        // Handle duplicate join error nicely
+        if (error.code === '23505') alert("This team is already registered!")
+        else alert(error.message)
+    } else {
+        alert("Request sent! Waiting for organizer approval.")
+        setShowTeamSelector(false) // Close modal if open
+        fetchTournamentData() // Refresh list
+    }
+  }
+
+  // 2. The check (Determines if we need the modal)
+  const handleJoinTournament = async () => {
+    // Select ALL teams, not just .single()
+    const { data: myTeams } = await supabase
+        .from('teams')
+        .select('id, name, logo_url')
+        .eq('owner_id', user.id)
+
+    if (!myTeams || myTeams.length === 0) {
+        return alert("You need to create a team first!")
+    }
+
+    if (myTeams.length === 1) {
+        // If user has only 1 team, join immediately
+        registerTeam(myTeams[0].id)
+    } else {
+        // If user has multiple teams, show the selector
+        setTeamsToSelect(myTeams)
+        setShowTeamSelector(true)
     }
   }
 
@@ -146,11 +170,9 @@ export default function TournamentDashboard() {
     }
   }
 
-const handleGenerateSchedule = async () => {
-    // 1. Safety Checks
+  const handleGenerateSchedule = async () => {
     if (teams.length < 2) return alert("You need at least 2 teams to generate a bracket.");
     
-    // Check if it's a power of 2 (4, 8, 16, 32)
     const log2 = Math.log2(teams.length);
     if (tournament.format === 'knockout' && log2 % 1 !== 0) {
         return alert(`For a proper knockout bracket, you need 4, 8, 16, or 32 teams. You currently have ${teams.length}. Please add dummy/bye teams.`);
@@ -161,7 +183,6 @@ const handleGenerateSchedule = async () => {
     setLoading(true);
 
     try {
-        // 2. Clear existing matches first (Optional but recommended to avoid duplicates)
         const { error: deleteError } = await supabase
             .from('matches')
             .delete()
@@ -169,10 +190,7 @@ const handleGenerateSchedule = async () => {
             
         if (deleteError) throw deleteError;
 
-        // 3. GENERATE BASED ON FORMAT
         if (tournament.format === 'knockout') {
-            // --- NEW LOGIC: Call the helper function we created ---
-            // We pass the tournament ID and the list of approved teams
             const approvedTeams = teams.filter(t => t.status === 'approved');
             
             if(approvedTeams.length !== teams.length) {
@@ -182,12 +200,10 @@ const handleGenerateSchedule = async () => {
                }
             }
 
-            await generateBracket(id, approvedTeams); // <--- THE MAGIC HAPPENS HERE
-            
+            await generateBracket(id, approvedTeams);
             alert("Knockout Bracket Generated Successfully! 🏆");
         
         } else {
-            // --- OLD LOGIC: Keep your existing API call for Leagues ---
             const res = await fetch(`/api/tournaments/${id}/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -198,7 +214,6 @@ const handleGenerateSchedule = async () => {
             alert(`Success! Generated league schedule.`);
         }
 
-        // 4. Refresh Data
         fetchTournamentData();
         setActiveTab('matches');
 
@@ -226,19 +241,41 @@ const handleGenerateSchedule = async () => {
   const finishedMatches = matches.filter(m => m.status === 'finished' || m.status === 'completed')
   const featuredMatch = liveMatches.length > 0 ? liveMatches[0] : upcomingMatches[0]
 
-
-  // === ADD THIS DEBUG BLOCK ===
-  console.log('Format:', tournament?.format);
-  console.log('Knockout Component:', KnockoutBracket);
-  console.log('League Component:', LeagueTable);
-  // ============================
-
-  
   return (
     <Layout title={tournament.name}>
        <div className="min-h-screen bg-gray-50 p-4 md:p-8">
           <div className="max-w-7xl mx-auto space-y-8">
             
+            {/* === TEAM SELECTOR MODAL (New) === */}
+            {showTeamSelector && (
+              <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+                <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+                  <div className="bg-indigo-900 p-4 flex justify-between items-center">
+                    <h3 className="text-white font-bold text-lg">Select Team to Join</h3>
+                    <button onClick={() => setShowTeamSelector(false)} className="text-indigo-200 hover:text-white"><X size={20}/></button>
+                  </div>
+                  <div className="p-4 max-h-[60vh] overflow-y-auto space-y-3">
+                    <p className="text-sm text-gray-500 mb-2">Which team are you registering for this tournament?</p>
+                    {teamsToSelect.map((team) => (
+                      <button
+                        key={team.id}
+                        onClick={() => registerTeam(team.id)}
+                        className="w-full flex items-center gap-4 p-3 rounded-lg border border-gray-200 hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left group"
+                      >
+                        <div className="w-10 h-10 rounded bg-gray-200 flex items-center justify-center overflow-hidden">
+                           {team.logo_url ? <img src={team.logo_url} className="w-full h-full object-cover"/> : <Shield size={16} className="text-gray-400"/>}
+                        </div>
+                        <div>
+                          <span className="block font-bold text-gray-900 group-hover:text-indigo-700">{team.name}</span>
+                          <span className="text-xs text-gray-400">Select this team</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* === EDIT MODAL === */}
             {isEditing && (
                 <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
