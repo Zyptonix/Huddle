@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import { 
   Users, Shield, Trophy, UserPlus, Edit3, X, 
   Calendar, Activity, LogOut, Check, Ban, Upload, Copy, Lock,
-  BarChart2, ChevronRight, Layout as LayoutIcon, TrendingUp, MapPin, Grid
+  BarChart2, ChevronRight, Layout as LayoutIcon, TrendingUp, MapPin, Grid, Heart
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
@@ -12,32 +12,30 @@ import Loading from '../../components/ui/Loading'
 import TeamSchedule from '@/components/teams/TeamSchedule'
 import TeamStats from '@/components/teams/TeamStats'
 import FollowButton from '@/components/ui/FollowButton'
-import CommentSection from '../../components/ui/CommentSection' // <--- IMPORTED HERE
+import CommentSection from '../../components/ui/CommentSection'
 
 export default function TeamProfile() {
   const router = useRouter()
   const { id } = router.query
   const { user } = useAuth()
   
-  // Data State
+  // --- STATE MANAGEMENT ---
   const [team, setTeam] = useState(null)
-  const [members, setMembers] = useState([]
+  const [members, setMembers] = useState([])
   const [followerCount, setFollowerCount] = useState(0)
   const [topScorers, setTopScorers] = useState([])
   const [participatedTournaments, setParticipatedTournaments] = useState([])
   const [currentUserProfile, setCurrentUserProfile] = useState(null) 
   const [loading, setLoading] = useState(true)
 
-  // UI State
-  const [activeTab, setActiveTab] = useState('overview') // 'overview', 'matches', 'stats'
+  const [activeTab, setActiveTab] = useState('overview') 
   const [isEditing, setIsEditing] = useState(false)
 
-  // Edit Form State
   const [editForm, setEditForm] = useState({})
   const [logoFile, setLogoFile] = useState(null)
   const [uploading, setUploading] = useState(false)
 
-  // --- ROLES & STATUS LOGIC ---
+  // --- DERIVED STATE ---
   const isOwner = team?.owner_id === user?.id
   const myMembership = members.find(m => m.user_id === user?.id)
   
@@ -52,62 +50,107 @@ export default function TeamProfile() {
     if (id && user) fetchData()
   }, [id, user])
 
-  // --- FETCH DATA ---
+  // --- DATA FETCHING ---
+// --- FETCH DATA (DEBUG VERSION) ---
+
+// --- FETCH DATA (SCHEMA-VERIFIED & DEBUGGED) ---
   const fetchData = async () => {
     try {
       setLoading(true)
-      
-      // A. Get Current User Profile
+      console.log("--- STARTING FETCH (SCHEMA VERIFIED) ---") // DEBUG
+
+      // 1. User Profile
       const { data: myProfile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
       setCurrentUserProfile(myProfile)
 
-      // B. Fetch Team Details
+      // 2. Team Details
+      console.log("Fetching Team ID:", id)
       const { data: teamData, error: teamError } = await supabase.from('teams').select('*').eq('id', id).single()
       
       if (teamError || !teamData) {
+        console.error("Team Fetch Error:", teamError)
         setTeam(null); setLoading(false); return
       }
 
-      // 3. Fetch Owner Data
-      const { data: ownerData } = await supabase.from('profiles').select('username, avatar_url, positions_preferred').eq('id', teamData.owner_id).single()
+      // ---------------------------------------------------------
+      // DYNAMIC WIN CALCULATION
+      // ---------------------------------------------------------
+      console.log("Fetching Match History...")
       
-      const ownerPosition = Array.isArray(ownerData?.positions_preferred) 
-        ? ownerData.positions_preferred.join(', ') 
-        : ownerData?.positions_preferred || 'Manager';
+      // We select specific columns from your schema to calculate wins
+      const { data: matchHistory, error: matchError } = await supabase
+        .from('matches')
+        .select('team_a_id, team_b_id, score_a, score_b, status, winner_id')
+        .or(`team_a_id.eq.${id},team_b_id.eq.${id}`)
+        .eq('status', 'completed') // Matches schema: status is text
 
-      const completeTeam = { ...teamData, owner: { ...ownerData, position: ownerPosition } }
+      if (matchError) console.error("Match History Error:", matchError)
+      
+      let calculatedWins = 0;
+      
+      if (matchHistory) {
+          console.log(`Found ${matchHistory.length} finished matches. Calculating wins...`)
+          
+          matchHistory.forEach(match => {
+              const isTeamA = match.team_a_id === id;
+              const isTeamB = match.team_b_id === id;
+              
+              // LOGIC: Check explicit winner_id first, then score fallback
+              if (match.winner_id === id) {
+                  console.log(`Match ${match.id}: Won via winner_id`)
+                  calculatedWins++;
+              } 
+              else if (!match.winner_id) {
+                  // Fallback: If no winner_id is set, calculate based on score
+                  if (isTeamA && (match.score_a > match.score_b)) {
+                      console.log(`Match (as Team A): Won via Score (${match.score_a}-${match.score_b})`)
+                      calculatedWins++;
+                  } else if (isTeamB && (match.score_b > match.score_a)) {
+                      console.log(`Match (as Team B): Won via Score (${match.score_b}-${match.score_a})`)
+                      calculatedWins++;
+                  }
+              }
+          });
+      }
+      
+      console.log("FINAL CALCULATED WINS:", calculatedWins)
+      teamData.wins = calculatedWins; // Override the stale DB value
+      // ---------------------------------------------------------
+
+      // 3. Owner Details
+      const { data: ownerData } = await supabase.from('profiles').select('username, avatar_url, positions_preferred').eq('id', teamData.owner_id).single()
+      const completeTeam = { ...teamData, owner: ownerData }
       setTeam(completeTeam)
       setEditForm({ ...completeTeam, is_recruiting: completeTeam.is_recruiting || false })
 
-      // 4. Fetch Members
+      // 4. Members
       const { data: membersData } = await supabase
         .from('team_members')
         .select(`*, profiles:user_id (username, positions_preferred, avatar_url, jersey_number)`)
         .eq('team_id', id)
       
-      const formattedMembers = membersData ? membersData.map(m => {
-        const posRaw = m.profiles?.positions_preferred;
-        const posStr = Array.isArray(posRaw) ? posRaw.join(', ') : posRaw;
-        return {
-            ...m,
-            username: m.profiles?.username,
-            position: posStr, 
-            jersey_number: m.profiles?.jersey_number,
-            avatar_url: m.profiles?.avatar_url
-        }
-      }) : []
+      const formattedMembers = membersData ? membersData.map(m => ({
+          ...m,
+          username: m.profiles?.username,
+          position: Array.isArray(m.profiles?.positions_preferred) ? m.profiles?.positions_preferred.join(', ') : m.profiles?.positions_preferred, 
+          jersey_number: m.profiles?.jersey_number,
+          avatar_url: m.profiles?.avatar_url
+      })) : []
       setMembers(formattedMembers)
 
-      // 5. Fetch Follower Count
-      const { count } = await supabase
+      // 5. Follower Count
+      console.log("Fetching Follows...")
+      const { count, error: followError } = await supabase
         .from('follows')
         .select('*', { count: 'exact', head: true })
         .eq('following_team_id', id)
       
-      setFollowerCount(count || 0)
+      if (followError) console.error("Follow Fetch Error:", followError)
+      console.log("Follow Count Returned:", count)
       
+      setFollowerCount(count || 0)
 
-      // D. Fetch Tournament History
+      // 6. Tournament History
       const { data: tourneyData } = await supabase
         .from('tournament_teams')
         .select(`status, tournaments (id, name, start_date, venue)`)
@@ -120,44 +163,32 @@ export default function TeamProfile() {
       })) : []
       setParticipatedTournaments(formattedTourneys)
 
-      // E. STATS & SCORERS LOGIC
+      // 7. Stats & Scorers
       const { data: allEvents } = await supabase.from('match_events').select('*').eq('team_id', id)
 
       if (allEvents) {
         const goalEvents = allEvents.filter(e => e.type && e.type.toLowerCase() === 'goal')
         const goalCounts = {}
-        
-        goalEvents.forEach(event => {
-            if(event.player_id) {
-                goalCounts[event.player_id] = (goalCounts[event.player_id] || 0) + 1
-            } else if (event.player_name) {
-                const matchedMember = formattedMembers.find(m => 
-                    m.username && m.username.toLowerCase() === event.player_name.toLowerCase()
-                )
-                if (matchedMember) {
-                    goalCounts[matchedMember.user_id] = (goalCounts[matchedMember.user_id] || 0) + 1
-                }
-            }
+        allEvents.filter(e => e.type === 'goal').forEach(event => {
+            if(event.player_id) goalCounts[event.player_id] = (goalCounts[event.player_id] || 0) + 1
         })
-
         const scorersList = formattedMembers
             .filter(m => m.status === 'active')
             .map(m => ({ ...m, goals: goalCounts[m.user_id] || 0 }))
             .filter(m => m.goals > 0)
             .sort((a, b) => b.goals - a.goals)
-
         setTopScorers(scorersList)
       }
       
     } catch (e) {
-      console.error("Fetch Error:", e)
+      console.error("CRITICAL FETCH ERROR:", e)
     } finally {
       setLoading(false)
     }
   }
 
 
-  // --- ACTIONS ---
+  // --- HANDLERS ---
   const handleRequestJoin = async () => {
     try {
       const res = await fetch(`/api/teams/${id}/join`, {
@@ -165,11 +196,8 @@ export default function TeamProfile() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user.id }) 
       })
-      if (!res.ok) {
-        const err = await res.json()
-        throw new Error(err.message || 'Request failed')
-      }
-      alert("Request sent to team owner!")
+      if (!res.ok) throw new Error('Request failed')
+      alert("Request sent!")
       fetchData() 
     } catch (error) { alert(error.message) }
   }
@@ -209,17 +237,19 @@ export default function TeamProfile() {
           is_recruiting: editForm.is_recruiting 
         }).eq('id', id)
       if (error) throw error
-      const updatedTeam = { ...team, ...editForm, logo_url: finalLogoUrl }
-      setTeam(updatedTeam); setEditForm(updatedTeam); setIsEditing(false)
+      
+      setTeam({ ...team, ...editForm, logo_url: finalLogoUrl })
+      setEditForm({ ...team, ...editForm, logo_url: finalLogoUrl })
+      setIsEditing(false)
       alert("Team updated!")
-    } catch (error) { alert("Error: " + error.message) } finally { setUploading(false) }
+    } catch (error) { alert("Error: " + error.message) } 
+    finally { setUploading(false) }
   }
 
   const copyJoinCode = () => {
     if (team?.join_code) { navigator.clipboard.writeText(team.join_code); alert("Join code copied!"); }
   }
 
-  // Handle immediate UI update when following/unfollowing
   const handleFollowToggle = (isNowFollowing) => {
     setFollowerCount(prev => isNowFollowing ? prev + 1 : prev - 1)
   }
@@ -227,76 +257,39 @@ export default function TeamProfile() {
   if (loading) return <Loading />
   if (!team) return <Layout><div className="p-10 text-center">Team not found</div></Layout>
 
-  // Roster Calculations
+  // Render Helpers
   let coaches = activeMembers.filter(m => m.role === 'coach' || m.role === 'owner')
   if (!coaches.find(m => m.user_id === team.owner_id) && team.owner) {
     coaches.unshift({ user_id: team.owner_id, username: team.owner.username, role: 'owner', avatar_url: team.owner.avatar_url })
   }
   const players = activeMembers.filter(m => m.role === 'player')
-  const sportColor = team.sport === 'basketball' ? 'text-orange-600' : 'text-emerald-600'
-  const sportBg = team.sport === 'basketball' ? 'bg-orange-50' : 'bg-emerald-50'
-
+const sportColor = team.sport === 'basketball' ? 'text-orange-600' : 'text-emerald-600'
+const sportBg = team.sport === 'basketball' ? 'bg-orange-50' : 'bg-emerald-50'
   return (
     <Layout title={`${team.name} - Huddle`}>
       <div className="max-w-7xl mx-auto p-4 md:p-8">
-        {/* EDIT MODAL */}
-        {isEditing && (
-            <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
-                <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
-                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                        <h3 className="font-bold text-lg">Edit Team Details</h3>
-                        <button onClick={() => setIsEditing(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
-                    </div>
-                    <form onSubmit={handleUpdateTeam} className="p-6 space-y-4">
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2">Team Logo</label>
-                            <div className="flex items-center gap-4">
-                                <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden border border-gray-200">
-                                    {logoFile ? <img src={URL.createObjectURL(logoFile)} className="w-full h-full object-cover" /> : 
-                                     editForm.logo_url ? <img src={editForm.logo_url} className="w-full h-full object-cover" /> : <Shield className="text-gray-300" />}
-                                </div>
-                                <label className="cursor-pointer bg-white border border-gray-300 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center gap-2">
-                                    <Upload size={16}/> Upload New Logo
-                                    <input type="file" accept="image/*" className="hidden" onChange={(e) => setLogoFile(e.target.files[0])} />
-                                </label>
-                            </div>
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Team Name</label>
-                            <input type="text" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">Description</label>
-                            <textarea value={editForm.description || ''} onChange={e => setEditForm({...editForm, description: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none h-24 resize-none" />
-                        </div>
-                        <div className="pt-2 flex justify-end gap-3">
-                            <button type="button" onClick={() => setIsEditing(false)} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Cancel</button>
-                            <button type="submit" disabled={uploading} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50">{uploading ? 'Uploading...' : 'Save Changes'}</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        )}
-
-        {/* HERO BANNER */}
+        
+        {/* === HERO BANNER (Restored from Old Version) === */}
         <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden mb-8 relative z-10">
+          {/* Gradient Banner Background */}
           <div className="h-40 bg-gradient-to-r from-indigo-600 to-blue-500 relative">
              <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-30"></div>
           </div>
           
           <div className="px-8 pb-6">
              <div className="flex flex-col md:flex-row items-end -mt-16 gap-6">
-                {/* Logo */}
-                <div className="w-36 h-36 bg-white rounded-2xl shadow-xl p-2 flex items-center justify-center relative z-10">
+                {/* Team Logo (Overlapping) */}
+                <div className="w-36 h-36 bg-white rounded-2xl shadow-xl p-2 flex items-center justify-center relative z-10 flex-shrink-0">
                    <div className="w-full h-full bg-gray-50 rounded-xl overflow-hidden flex items-center justify-center border border-gray-100">
                       {team.logo_url ? <img src={team.logo_url} className="w-full h-full object-cover" /> : <Shield size={64} className="text-gray-300" />}
                    </div>
                 </div>
 
-                {/* Team Info */}
-                <div className="flex-1 mb-2">
-                   <div className="flex items-center gap-3 mb-1">
+                {/* Team Info & Stats */}
+                <div className="flex-1 mb-1">
+                   <div className="flex items-center gap-3">
                       <h1 className="text-4xl font-black text-gray-900 tracking-tight">{team.name}</h1>
+                      {/* Form Guide */}
                       <div className="hidden md:flex gap-1 ml-4">
                         {[1,1,0,1,1].map((r, i) => (
                             <span key={i} className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold text-white ${r===1 ? 'bg-green-500' : 'bg-gray-400'}`}>
@@ -305,29 +298,27 @@ export default function TeamProfile() {
                         ))}
                       </div>
                    </div>
-                   <h1 className="text-4xl font-bold text-gray-900 mb-2">{team.name}</h1>
                    
-                   {/* STATS ROW WITH FOLLOWER COUNT */}
-                   <p className="text-gray-500 text-sm flex items-center gap-6 font-medium">
+                   {/* STATS ROW: Added Follower Count Here */}
+                   <p className="text-gray-500 text-sm flex flex-wrap items-center gap-6 font-medium mt-2">
                       <span className="flex items-center gap-1.5"><Users size={16} className="text-gray-400"/> {activeMembers.length} Members</span>
                       <span className="flex items-center gap-1.5"><Trophy size={16} className="text-yellow-500"/> {team.wins || 0} Wins</span>
                       <span className="flex items-center gap-1.5"><Heart size={16} className="text-purple-500 fill-purple-500"/> {followerCount} Followers</span>
                    </p>
                    
+                   {/* Join Code (Owner Only) */}
                    {isOwner && team.join_code && (
-                       <div className="mt-3 inline-flex items-center gap-3 bg-gray-50 border border-gray-200 px-4 py-2 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors group" onClick={copyJoinCode}>
-                           <div className="flex flex-col">
-                               <span className="text-[10px] uppercase font-bold text-gray-400 leading-none">Team Join Code</span>
-                               <span className="font-mono font-bold text-lg text-gray-800 tracking-wider leading-none mt-1">{team.join_code}</span>
-                           </div>
-                           <Copy size={16} className="text-gray-400 group-hover:text-indigo-600" />
+                       <div className="mt-3 inline-flex items-center gap-3 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors group" onClick={copyJoinCode}>
+                           <span className="text-[10px] uppercase font-bold text-gray-400">Join Code:</span>
+                           <span className="font-mono font-bold text-gray-800">{team.join_code}</span>
+                           <Copy size={14} className="text-gray-400 group-hover:text-indigo-600" />
                        </div>
                    )}
                 </div>
                 
-                {/* 3. BUTTON LOGIC */}
-                <div className="mt-4 md:mt-14 flex flex-col md:flex-row gap-3 items-center">
-                   
+                {/* Action Buttons (Right Aligned) */}
+                <div className="mt-4 md:mt-0 flex gap-3 items-center">
+                   {/* Follow Button Integrated Here */}
                    <FollowButton 
                         currentUser={user} 
                         targetId={team.id} 
@@ -336,81 +327,40 @@ export default function TeamProfile() {
                    />
 
                    {isOwner ? (
-                      <button onClick={() => setIsEditing(true)} className="bg-slate-900 text-white hover:bg-slate-800 px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
-                         <Edit3 size={18} /> Manage Club
+                      <button onClick={() => setIsEditing(true)} className="bg-slate-900 text-white hover:bg-slate-800 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
+                         <Edit3 size={18} /> Manage
                       </button>
                    ) : isActiveMember ? (
-                      <button onClick={handleLeave} className="bg-white border-2 border-red-100 text-red-600 hover:bg-red-50 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors">
-                         <LogOut size={18} /> Leave Club
+                      <button onClick={handleLeave} className="bg-white border-2 border-red-100 text-red-600 hover:bg-red-50 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-colors">
+                         <LogOut size={18} /> Leave
                       </button>
                    ) : isPending ? (
-                      <button disabled className="bg-gray-100 text-gray-400 px-6 py-3 rounded-xl font-bold flex items-center gap-2 cursor-not-allowed">
-                         <Activity size={18} /> Pending...
+                      <button disabled className="bg-gray-100 text-gray-400 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 cursor-not-allowed">
+                         <Activity size={18} /> Pending
                       </button>
                    ) : (
                       (!isGlobalCoachOrOrganizer && team.is_recruiting) && (
-                          <button onClick={handleRequestJoin} className="bg-indigo-600 text-white hover:bg-indigo-700 px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-transform hover:scale-105">
-                             Request to Join
+                          <button onClick={handleRequestJoin} className="bg-indigo-600 text-white hover:bg-indigo-700 px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-transform hover:scale-105">
+                             Join Team
                           </button>
                       )
                    )}
                 </div>
              </div>
-
-             {/* Quick Stats Bar */}
-             <div className="mt-8 pt-6 border-t border-gray-100 grid grid-cols-2 md:grid-cols-4 gap-6">
-                <div className="flex flex-col">
-                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Total Members</span>
-                   <span className="text-2xl font-black text-gray-800">{activeMembers.length}</span>
-                </div>
-                <div className="flex flex-col">
-                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Season Wins</span>
-                   <span className="text-2xl font-black text-emerald-600">{team.wins || 0}</span>
-                </div>
-                <div className="flex flex-col">
-                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Recruiting</span>
-                   <span className={`text-lg font-bold flex items-center gap-1 mt-1 ${team.is_recruiting ? 'text-blue-600' : 'text-gray-500'}`}>
-                      {team.is_recruiting ? <><UserPlus size={16}/> Active</> : <><Lock size={16}/> Closed</>}
-                   </span>
-                </div>
-                {isOwner && team.join_code && (
-                    <div onClick={copyJoinCode} className="flex flex-col cursor-pointer group">
-                        <span className="text-xs uppercase font-bold text-gray-400 tracking-wider group-hover:text-indigo-600 transition-colors">Team Code</span>
-                        <span className="text-lg font-mono font-bold text-gray-800 flex items-center gap-2">
-                            {team.join_code} <Copy size={14} className="text-gray-300 group-hover:text-indigo-600"/>
-                        </span>
-                    </div>
-                )}
-             </div>
           </div>
         </div>
 
         {/* === TABS NAVIGATION === */}
-        <div className="flex justify-center">
+        <div className="flex justify-center mb-8">
             <div className="bg-white p-1 rounded-2xl border border-gray-200 shadow-sm inline-flex gap-2">
-                <button 
-                    onClick={() => setActiveTab('overview')}
-                    className={`px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-                        activeTab === 'overview' ? 'bg-slate-900 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'
-                    }`}
-                >
+                <button onClick={() => setActiveTab('overview')} className={`px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'overview' ? 'bg-slate-900 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}>
                     <Grid size={16}/> Overview
                 </button>
-                <button 
-                    onClick={() => setActiveTab('matches')}
-                    className={`px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-                        activeTab === 'matches' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'
-                    }`}
-                >
-                    <Calendar size={16}/> Matches & Lineups
+                <button onClick={() => setActiveTab('matches')} className={`px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'matches' ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}>
+                    <Calendar size={16}/> Matches
                 </button>
-                <button 
-                    onClick={() => setActiveTab('stats')}
-                    className={`px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${
-                        activeTab === 'stats' ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'
-                    }`}
-                >
-                    <BarChart2 size={16}/> Stats Lab
+                <button onClick={() => setActiveTab('stats')} className={`px-6 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all ${activeTab === 'stats' ? 'bg-emerald-600 text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}>
+                    <BarChart2 size={16}/> Stats
                 </button>
             </div>
         </div>
@@ -420,85 +370,99 @@ export default function TeamProfile() {
             
             {/* 1. OVERVIEW TAB */}
             {activeTab === 'overview' && (
-                <div className="grid lg:grid-cols-3 gap-8">
-                    {/* Left Col: Info & Admin */}
-                    <div className="space-y-6">
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
-                                <Shield size={18} className="text-slate-400"/> Club Identity
-                            </h3>
-                            <p className="text-gray-600 text-sm leading-relaxed mb-4">
-                                {team.description || "The management has not provided a description for this club yet."}
-                            </p>
-                            <div className="flex gap-2">
-                                <span className={`${sportBg} ${sportColor} text-[10px] font-bold px-3 py-1 rounded-full uppercase`}>{team.sport}</span>
-                                <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Dhaka, BD</span>
+                <div className="space-y-8">
+                    <div className="grid lg:grid-cols-3 gap-8">
+                        {/* Left Col: Info & Admin */}
+                        <div className="space-y-6">
+                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                                <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2">
+                                    <Shield size={18} className="text-slate-400"/> Club Identity
+                                </h3>
+                                <p className="text-gray-600 text-sm leading-relaxed mb-4">
+                                    {team.description || "The management has not provided a description for this club yet."}
+                                </p>
+                                <div className="flex gap-2">
+                                    <span className={`${sportBg} ${sportColor} text-[10px] font-bold px-3 py-1 rounded-full uppercase`}>{team.sport}</span>
+                                    <span className="bg-gray-100 text-gray-600 text-[10px] font-bold px-3 py-1 rounded-full uppercase">Dhaka, BD</span>
+                                </div>
                             </div>
+
+                            {/* Pending Requests (Owner Only) */}
+                            {isOwner && pendingRequests.length > 0 && (
+                                <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 shadow-sm">
+                                    <h4 className="font-bold text-amber-900 mb-3 flex items-center justify-between">
+                                        <span>Pending Approvals</span>
+                                        <span className="bg-amber-200 text-amber-900 text-xs px-2 py-0.5 rounded-full">{pendingRequests.length}</span>
+                                    </h4>
+                                    <div className="space-y-3">
+                                        {pendingRequests.map(req => (
+                                            <div key={req.id} className="bg-white p-3 rounded-xl border border-amber-100 flex justify-between items-center shadow-sm">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden">
+                                                        {req.avatar_url ? <img src={req.avatar_url} className="w-full h-full object-cover"/> : <span className="flex items-center justify-center h-full font-bold text-xs text-gray-500">{req.username[0]}</span>}
+                                                    </div>
+                                                    <span className="font-bold text-sm text-gray-800">{req.username}</span>
+                                                </div>
+                                                <div className="flex gap-1">
+                                                    <button onClick={() => handleManageRequest(req.id, 'deny')} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><X size={16}/></button>
+                                                    <button onClick={() => handleManageRequest(req.id, 'accept')} className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded"><Check size={16}/></button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
-                        {/* Pending Requests */}
-                        {isOwner && pendingRequests.length > 0 && (
-                            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5 shadow-sm">
-                                <h4 className="font-bold text-amber-900 mb-3 flex items-center justify-between">
-                                    <span>Pending Approvals</span>
-                                    <span className="bg-amber-200 text-amber-900 text-xs px-2 py-0.5 rounded-full">{pendingRequests.length}</span>
-                                </h4>
-                                <div className="space-y-3">
-                                    {pendingRequests.map(req => (
-                                        <div key={req.id} className="bg-white p-3 rounded-xl border border-amber-100 flex justify-between items-center shadow-sm">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden">
-                                                    {req.avatar_url ? <img src={req.avatar_url} className="w-full h-full object-cover"/> : <span className="flex items-center justify-center h-full font-bold text-xs text-gray-500">{req.username[0]}</span>}
-                                                </div>
-                                                <span className="font-bold text-sm text-gray-800">{req.username}</span>
+                        {/* Right Col: Roster (Spans 2 cols) */}
+                        <div className="lg:col-span-2">
+                            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
+                                <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                                    <h3 className="font-bold text-gray-900">Active Roster</h3>
+                                    <span className="text-xs font-bold text-gray-500">{coaches.length + players.length} Active</span>
+                                </div>
+                                <div className="divide-y divide-gray-100">
+                                    {/* Coaches */}
+                                    {coaches.map(c => (
+                                        <div key={c.user_id} className="p-4 flex items-center gap-3 bg-slate-50/50">
+                                            <div className="w-10 h-10 rounded-full border-2 border-white shadow-sm overflow-hidden">
+                                                {c.avatar_url ? <img src={c.avatar_url} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-slate-200"/>}
                                             </div>
-                                            <div className="flex gap-1">
-                                                <button onClick={() => handleManageRequest(req.id, 'deny')} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><X size={16}/></button>
-                                                <button onClick={() => handleManageRequest(req.id, 'accept')} className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded"><Check size={16}/></button>
+                                            <div>
+                                                <p className="font-bold text-sm text-slate-900">{c.username}</p>
+                                                <p className="text-[10px] font-bold uppercase text-slate-500">{c.role}</p>
                                             </div>
                                         </div>
                                     ))}
+                                    {/* Players */}
+                                    {players.map(p => (
+                                        <div key={p.user_id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-10 h-10 rounded-full bg-gray-100 overflow-hidden">
+                                                    {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-gray-200"/>}
+                                                </div>
+                                                <div>
+                                                    <p className="font-bold text-sm text-gray-900">{p.username}</p>
+                                                    <p className="text-xs text-gray-500">{p.position || 'Athlete'}</p>
+                                                </div>
+                                            </div>
+                                            <span className="font-mono font-bold text-gray-300 text-lg">#{p.jersey_number || '00'}</span>
+                                        </div>
+                                    ))}
+                                    {players.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">Roster is currently empty.</div>}
                                 </div>
                             </div>
-                        )}
+                        </div>
                     </div>
 
-                    {/* Right Col: Roster (Spans 2 cols) */}
-                    <div className="lg:col-span-2">
-                        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
-                            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
-                                <h3 className="font-bold text-gray-900">Active Roster</h3>
-                                <span className="text-xs font-bold text-gray-500">{coaches.length + players.length} Active</span>
-                            </div>
-                            <div className="divide-y divide-gray-100">
-                                {coaches.map(c => (
-                                    <div key={c.user_id} className="p-4 flex items-center gap-3 bg-slate-50/50">
-                                        <div className="w-10 h-10 rounded-full border-2 border-white shadow-sm overflow-hidden">
-                                            {c.avatar_url ? <img src={c.avatar_url} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-slate-200"/>}
-                                        </div>
-                                        <div>
-                                            <p className="font-bold text-sm text-slate-900">{c.username}</p>
-                                            <p className="text-[10px] font-bold uppercase text-slate-500">{c.role}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                                {players.map(p => (
-                                    <div key={p.user_id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-gray-100 overflow-hidden">
-                                                {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover"/> : <div className="w-full h-full bg-gray-200"/>}
-                                            </div>
-                                            <div>
-                                                <p className="font-bold text-sm text-gray-900">{p.username}</p>
-                                                <p className="text-xs text-gray-500">{p.position || 'Athlete'}</p>
-                                            </div>
-                                        </div>
-                                        <span className="font-mono font-bold text-gray-300 text-lg">#{p.jersey_number || '00'}</span>
-                                    </div>
-                                ))}
-                                {players.length === 0 && <div className="p-8 text-center text-gray-400 text-sm">Roster is currently empty.</div>}
-                            </div>
-                        </div>
+                    {/* --- COMMENT SECTION (ONLY IN OVERVIEW) --- */}
+                    <div className="mt-8">
+                        <CommentSection 
+                            targetId={id} 
+                            table="team_comments" 
+                            foreignKey="team_id" 
+                            title="Fan Wall" 
+                        />
                     </div>
                 </div>
             )}
@@ -513,7 +477,6 @@ export default function TeamProfile() {
             {/* 3. STATS TAB */}
             {activeTab === 'stats' && (
                 <div className="space-y-6">
-                    {/* Main Charts */}
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
                         <h3 className="font-bold text-gray-800 mb-6 border-b border-gray-100 pb-2">Season Analytics</h3>
                         <TeamStats teamId={id} />
@@ -576,60 +539,50 @@ export default function TeamProfile() {
                             )}
                         </div>
                     </div>
-                 ))}
-             </div>
-
-             {/* --- COMMENT SECTION ADDED HERE --- */}
-             <CommentSection 
-                targetId={id} 
-                table="team_comments" 
-                foreignKey="team_id" 
-                title="Fan Wall" 
-            />
-
-           </div>
+                </div>
+            )}
         </div>
 
-        {/* === EDIT MODAL (Global) === */}
-        {isEditing && (
-            <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                        <h3 className="font-bold text-lg">Edit Team Details</h3>
-                        <button onClick={() => setIsEditing(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
-                    </div>
-                    <form onSubmit={handleUpdateTeam} className="p-6 space-y-4">
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-2">Team Logo</label>
-                            <div className="flex items-center gap-4">
-                                <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden border border-gray-200">
-                                    {logoFile ? <img src={URL.createObjectURL(logoFile)} className="w-full h-full object-cover" /> : 
-                                     editForm.logo_url ? <img src={editForm.logo_url} className="w-full h-full object-cover" /> : <Shield className="text-gray-300" />}
-                                </div>
-                                <label className="cursor-pointer bg-white border border-gray-300 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center gap-2">
-                                    <Upload size={16}/> Upload New Logo
-                                    <input type="file" accept="image/*" className="hidden" onChange={(e) => setLogoFile(e.target.files[0])} />
-                                </label>
-                            </div>
-                        </div>
-                        <div><label className="block text-sm font-bold text-gray-700 mb-1">Name</label><input type="text" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full border p-2 rounded-lg" /></div>
-                        <div><label className="block text-sm font-bold text-gray-700 mb-1">Description</label><textarea value={editForm.description || ''} onChange={e => setEditForm({...editForm, description: e.target.value})} className="w-full border p-2 rounded-lg h-24" /></div>
-                        
-                        <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center justify-between">
-                            <div><span className="block text-sm font-bold text-blue-900">Recruiting</span><span className="text-xs text-blue-700">Allow players to join?</span></div>
-                            <input type="checkbox" checked={editForm.is_recruiting} onChange={(e) => setEditForm({...editForm, is_recruiting: e.target.checked})} className="w-5 h-5 accent-blue-600" />
-                        </div>
-
-                        <div className="pt-4 flex justify-end gap-3">
-                            <button type="button" onClick={() => setIsEditing(false)} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Cancel</button>
-                            <button type="submit" disabled={uploading} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">{uploading ? 'Saving...' : 'Save Changes'}</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        )}
-
       </div>
+
+      {/* === EDIT MODAL === */}
+      {isEditing && (
+          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+              <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                  <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                      <h3 className="font-bold text-lg">Edit Team Details</h3>
+                      <button onClick={() => setIsEditing(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+                  </div>
+                  <form onSubmit={handleUpdateTeam} className="p-6 space-y-4">
+                      <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-2">Team Logo</label>
+                          <div className="flex items-center gap-4">
+                              <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden border border-gray-200">
+                                  {logoFile ? <img src={URL.createObjectURL(logoFile)} className="w-full h-full object-cover" /> : 
+                                   editForm.logo_url ? <img src={editForm.logo_url} className="w-full h-full object-cover" /> : <Shield className="text-gray-300" />}
+                              </div>
+                              <label className="cursor-pointer bg-white border border-gray-300 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center gap-2">
+                                  <Upload size={16}/> Upload New Logo
+                                  <input type="file" accept="image/*" className="hidden" onChange={(e) => setLogoFile(e.target.files[0])} />
+                              </label>
+                          </div>
+                      </div>
+                      <div><label className="block text-sm font-bold text-gray-700 mb-1">Name</label><input type="text" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full border p-2 rounded-lg" /></div>
+                      <div><label className="block text-sm font-bold text-gray-700 mb-1">Description</label><textarea value={editForm.description || ''} onChange={e => setEditForm({...editForm, description: e.target.value})} className="w-full border p-2 rounded-lg h-24" /></div>
+                      
+                      <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 flex items-center justify-between">
+                          <div><span className="block text-sm font-bold text-blue-900">Recruiting</span><span className="text-xs text-blue-700">Allow players to join?</span></div>
+                          <input type="checkbox" checked={editForm.is_recruiting} onChange={(e) => setEditForm({...editForm, is_recruiting: e.target.checked})} className="w-5 h-5 accent-blue-600" />
+                      </div>
+
+                      <div className="pt-4 flex justify-end gap-3">
+                          <button type="button" onClick={() => setIsEditing(false)} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Cancel</button>
+                          <button type="submit" disabled={uploading} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700">{uploading ? 'Saving...' : 'Save Changes'}</button>
+                      </div>
+                  </form>
+              </div>
+          </div>
+      )}
     </Layout>
   )
 }
