@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router';
 import { useEffect, useState, useMemo } from 'react';
-import { supabase } from '../../../lib/supabaseClient';
-import Layout from '../../../components/ui/Layout';
+import { supabase } from '@/lib/supabaseClient';
+import Layout from '@/components/ui/Layout';
 import { Clock, MapPin, BarChart3, List, Trophy, Zap, AlertTriangle, Hash, Calendar, User, Target, XCircle, Wifi } from 'lucide-react';
 
 // --- 1. SUB-COMPONENTS ---
@@ -10,23 +10,24 @@ const MatchEvent = ({ event }) => {
   let icon, colorClass, messageClass;
   const type = event.type ? event.type.toLowerCase().trim() : '';
 
-  if (type === 'goal') {
+  // Generic/Football
+  if (type === 'goal' || type === '3pt' || type === 'six' || type === 'four') {
     icon = <Trophy size={16} className="text-teal-600" />;
     colorClass = 'bg-teal-50 border-teal-200 text-teal-800';
     messageClass = 'font-extrabold text-gray-900';
-  } else if (type.includes('yellow')) {
+  } else if (type.includes('yellow') || type === 'foul_p' || type === 'wide' || type === 'nb') {
     icon = <Zap size={16} className="text-yellow-600" />;
     colorClass = 'bg-yellow-50 border-yellow-200 text-yellow-800';
     messageClass = 'font-medium text-gray-800';
-  } else if (type.includes('red')) {
+  } else if (type.includes('red') || type === 'wicket' || type === 'foul_t') {
     icon = <AlertTriangle size={16} className="text-red-600" />;
     colorClass = 'bg-red-50 border-red-200 text-red-800';
     messageClass = 'font-medium text-gray-800';
-  } else if (type === 'shot_on') {
+  } else if (type === 'shot_on' || type === 'ft') {
     icon = <Target size={16} className="text-blue-600" />;
     colorClass = 'bg-blue-50 border-blue-200 text-blue-800';
     messageClass = 'font-medium text-gray-800';
-  } else if (type === 'shot_off') {
+  } else if (type === 'shot_off' || type === 'dot' || type === 'turnover') {
     icon = <XCircle size={16} className="text-gray-400" />;
     colorClass = 'bg-gray-100 border-gray-200 text-gray-600';
     messageClass = 'font-medium text-gray-600';
@@ -106,18 +107,45 @@ export default function MatchPublicPage() {
   const [loading, setLoading] = useState(true);
   const [realtimeStatus, setRealtimeStatus] = useState('Connecting...');
 
-  // --- STATS CALCULATOR ---
+  // Identify Sport
+  const sport = match?.tournaments?.sport?.toLowerCase() || 'football';
+
+  // --- MULTI-SPORT STATS CALCULATOR ---
   const computedStats = useMemo(() => {
-    const stats = {
-        goals_a: 0, goals_b: 0,
-        ontarget_a: 0, ontarget_b: 0,
-        offtarget_a: 0, offtarget_b: 0,
-        corners_a: 0, corners_b: 0,
-        yellow_a: 0, yellow_b: 0,
-        red_a: 0, red_b: 0,
-        possession_a: match?.details?.possession_a || 50,
-        possession_b: match?.details?.possession_b || 50,
-    };
+    // Initialize stats object based on sport
+    let stats = { possession_a: match?.details?.possession_a || 50, possession_b: match?.details?.possession_b || 50 };
+
+    if (sport === 'basketball') {
+        Object.assign(stats, {
+            pts3_a: 0, pts3_b: 0,
+            pts2_a: 0, pts2_b: 0,
+            ft_a: 0, ft_b: 0,
+            rebounds_a: 0, rebounds_b: 0,
+            assists_a: 0, assists_b: 0,
+            steals_a: 0, steals_b: 0,
+            blocks_a: 0, blocks_b: 0,
+            turnovers_a: 0, turnovers_b: 0,
+            fouls_a: 0, fouls_b: 0
+        });
+    } else if (sport === 'cricket') {
+        Object.assign(stats, {
+            sixes_a: 0, sixes_b: 0,
+            fours_a: 0, fours_b: 0,
+            wickets_a: 0, wickets_b: 0,
+            extras_a: 0, extras_b: 0,
+            dots_a: 0, dots_b: 0
+        });
+    } else {
+        // Football / Default
+        Object.assign(stats, {
+            goals_a: 0, goals_b: 0,
+            ontarget_a: 0, ontarget_b: 0,
+            offtarget_a: 0, offtarget_b: 0,
+            corners_a: 0, corners_b: 0,
+            yellow_a: 0, yellow_b: 0,
+            red_a: 0, red_b: 0
+        });
+    }
 
     if (!match || !events) return stats;
 
@@ -131,29 +159,40 @@ export default function MatchPublicPage() {
             else if (isTeamB) stats[keyB]++;
         };
 
-        if (type === 'goal') {
-            increment('goals_a', 'goals_b');
-            increment('ontarget_a', 'ontarget_b');
+        if (sport === 'basketball') {
+            if (type === '3pt') increment('pts3_a', 'pts3_b');
+            else if (type === '2pt') increment('pts2_a', 'pts2_b');
+            else if (type === 'ft') increment('ft_a', 'ft_b');
+            else if (type === 'reb' || type === 'rebound') increment('rebounds_a', 'rebounds_b');
+            else if (type === 'assist') increment('assists_a', 'assists_b');
+            else if (type === 'steal') increment('steals_a', 'steals_b');
+            else if (type === 'block') increment('blocks_a', 'blocks_b');
+            else if (type === 'turnover') increment('turnovers_a', 'turnovers_b');
+            else if (type.includes('foul')) increment('fouls_a', 'fouls_b');
         } 
-        else if (type === 'shot_on') {
-            increment('ontarget_a', 'ontarget_b');
+        else if (sport === 'cricket') {
+            if (type === 'six') increment('sixes_a', 'sixes_b');
+            else if (type === 'four') increment('fours_a', 'fours_b');
+            else if (type === 'wicket') increment('wickets_a', 'wickets_b');
+            else if (type === 'wide' || type === 'nb' || type === 'noball') increment('extras_a', 'extras_b');
+            else if (type === 'dot') increment('dots_a', 'dots_b');
+        } 
+        else {
+            // Football
+            if (type === 'goal') {
+                increment('goals_a', 'goals_b');
+                increment('ontarget_a', 'ontarget_b');
+            } 
+            else if (type === 'shot_on') increment('ontarget_a', 'ontarget_b');
+            else if (type === 'shot_off') increment('offtarget_a', 'offtarget_b');
+            else if (type === 'card_yellow') increment('yellow_a', 'yellow_b');
+            else if (type === 'card_red') increment('red_a', 'red_b');
+            else if (type === 'corner') increment('corners_a', 'corners_b');
         }
-        else if (type === 'shot_off') {
-            increment('offtarget_a', 'offtarget_b');
-        }
-        else if (type === 'card_yellow') {
-            increment('yellow_a', 'yellow_b');
-        } 
-        else if (type === 'card_red') {
-            increment('red_a', 'red_b');
-        } 
-        else if (type === 'corner') {
-            increment('corners_a', 'corners_b');
-        } 
     });
 
     return stats;
-  }, [match, events]);
+  }, [match, events, sport]);
 
   // --- FETCH LINEUPS ---
   const fetchSquads = async (matchId, teamAId, teamBId) => {
@@ -239,7 +278,6 @@ export default function MatchPublicPage() {
     console.log("Setting up subscription for Match ID:", id);
     
     const channel = supabase.channel(`public:match:${id}`)
-      // A. Listen for Match Details (Score, Clock, Status)
       .on('postgres_changes', 
         { event: 'UPDATE', schema: 'public', table: 'matches', filter: `id=eq.${id}` },
         (payload) => {
@@ -247,12 +285,10 @@ export default function MatchPublicPage() {
            setMatch(prev => ({ ...prev, ...payload.new }));
         }
       )
-      // B. Listen for Match Events (Insert, Update, Delete)
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'match_events', filter: `match_id=eq.${id}` },
         (payload) => {
            console.log("EVENT RECEIVED:", payload);
-           
            if (payload.eventType === 'INSERT') {
                setEvents(prev => [payload.new, ...prev]);
            } else if (payload.eventType === 'UPDATE') {
@@ -262,7 +298,6 @@ export default function MatchPublicPage() {
            }
         }
       )
-      // C. Listen for Lineup Changes
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: 'match_lineups', filter: `match_id=eq.${id}` },
         async () => {
@@ -307,7 +342,7 @@ export default function MatchPublicPage() {
 
           <div className="flex justify-between items-center mb-6">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-widest flex items-center gap-1">
-              <MapPin size={12}/> {match.venue || 'Main Arena'}
+              <MapPin size={12}/> {match.venue || 'Main Arena'} • <span className="text-indigo-500">{sport.toUpperCase()}</span>
             </span>
             
             {match.status === 'live' && <span className="flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-600 text-xs font-bold animate-pulse border border-red-200"><span className="w-2 h-2 rounded-full bg-red-600"></span> LIVE</span>}
@@ -382,20 +417,52 @@ export default function MatchPublicPage() {
           </div>
         )}
 
-        {/* --- Stats Tab --- */}
+        {/* --- Stats Tab (CONDITIONAL RENDERING) --- */}
         {activeTab === 'stats' && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-xl animate-in fade-in">
-            <h3 className="text-center font-bold text-gray-800 mb-8 uppercase tracking-widest text-lg">Match Stats</h3>
-            {[
-              { label: 'Possession %', a: computedStats.possession_a, b: computedStats.possession_b },
-              { label: 'Goals', a: computedStats.goals_a, b: computedStats.goals_b },
-              { label: 'Shots on Target', a: computedStats.ontarget_a, b: computedStats.ontarget_b },
-              { label: 'Shots Missed', a: computedStats.offtarget_a, b: computedStats.offtarget_b },
-              { label: 'Corners', a: computedStats.corners_a, b: computedStats.corners_b },
-              { label: 'Yellow Cards', a: computedStats.yellow_a, b: computedStats.yellow_b },
-              { label: 'Red Cards', a: computedStats.red_a, b: computedStats.red_b },
+            <h3 className="text-center font-bold text-gray-800 mb-8 uppercase tracking-widest text-lg">
+                {sport === 'football' && 'Match Stats'}
+                {sport === 'basketball' && 'Game Statistics'}
+                {sport === 'cricket' && 'Match Scorecard'}
+            </h3>
+            
+            {/* BASKETBALL STATS */}
+            {sport === 'basketball' && [
+                { label: '3 Pointers', a: computedStats.pts3_a, b: computedStats.pts3_b },
+                { label: '2 Pointers', a: computedStats.pts2_a, b: computedStats.pts2_b },
+                { label: 'Free Throws', a: computedStats.ft_a, b: computedStats.ft_b },
+                { label: 'Rebounds', a: computedStats.rebounds_a, b: computedStats.rebounds_b },
+                { label: 'Assists', a: computedStats.assists_a, b: computedStats.assists_b },
+                { label: 'Steals', a: computedStats.steals_a, b: computedStats.steals_b },
+                { label: 'Blocks', a: computedStats.blocks_a, b: computedStats.blocks_b },
+                { label: 'Turnovers', a: computedStats.turnovers_a, b: computedStats.turnovers_b },
+                { label: 'Fouls', a: computedStats.fouls_a, b: computedStats.fouls_b },
             ].map((stat, i) => (
-              <StatBar key={i} label={stat.label} a={stat.a} b={stat.b} teamAColor={teamAColor} teamBColor={teamBColor} />
+                <StatBar key={i} label={stat.label} a={stat.a} b={stat.b} teamAColor={teamAColor} teamBColor={teamBColor} />
+            ))}
+
+            {/* CRICKET STATS */}
+            {sport === 'cricket' && [
+                { label: 'Sixes', a: computedStats.sixes_a, b: computedStats.sixes_b },
+                { label: 'Fours', a: computedStats.fours_a, b: computedStats.fours_b },
+                { label: 'Wickets', a: computedStats.wickets_a, b: computedStats.wickets_b },
+                { label: 'Extras', a: computedStats.extras_a, b: computedStats.extras_b },
+                { label: 'Dot Balls', a: computedStats.dots_a, b: computedStats.dots_b },
+            ].map((stat, i) => (
+                <StatBar key={i} label={stat.label} a={stat.a} b={stat.b} teamAColor={teamAColor} teamBColor={teamBColor} />
+            ))}
+
+            {/* FOOTBALL STATS (Default) */}
+            {sport !== 'basketball' && sport !== 'cricket' && [
+                { label: 'Possession %', a: computedStats.possession_a, b: computedStats.possession_b },
+                { label: 'Goals', a: computedStats.goals_a, b: computedStats.goals_b },
+                { label: 'Shots on Target', a: computedStats.ontarget_a, b: computedStats.ontarget_b },
+                { label: 'Shots Missed', a: computedStats.offtarget_a, b: computedStats.offtarget_b },
+                { label: 'Corners', a: computedStats.corners_a, b: computedStats.corners_b },
+                { label: 'Yellow Cards', a: computedStats.yellow_a, b: computedStats.yellow_b },
+                { label: 'Red Cards', a: computedStats.red_a, b: computedStats.red_b },
+            ].map((stat, i) => (
+                <StatBar key={i} label={stat.label} a={stat.a} b={stat.b} teamAColor={teamAColor} teamBColor={teamBColor} />
             ))}
           </div>
         )}

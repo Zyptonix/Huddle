@@ -5,6 +5,10 @@ import {
   Calendar, Activity, LogOut, Check, Ban, Upload, Copy, Lock,
   BarChart2, ChevronRight, Layout as LayoutIcon, TrendingUp, MapPin, Grid, Heart
 } from 'lucide-react'
+import { 
+   Target, Footprints, 
+  Zap,  Timer 
+} from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import Layout from '../../components/ui/Layout'
@@ -13,6 +17,49 @@ import TeamSchedule from '@/components/teams/TeamSchedule'
 import TeamStats from '@/components/teams/TeamStats'
 import FollowButton from '@/components/ui/FollowButton'
 import CommentSection from '../../components/ui/CommentSection'
+
+
+const STATS_CONFIG = {
+  football: {
+    stats: [
+      { label: 'Goals Scored', key: 'goals_scored', icon: <Target size={20} className="text-green-500"/> },
+      { label: 'Clean Sheets', key: 'clean_sheets', icon: <Shield size={20} className="text-blue-500"/> }, // Note: Hard to calc from events only, might need match data
+      { label: 'Red Cards', key: 'red_cards', icon: <div className="w-4 h-5 bg-red-600 rounded-sm border border-red-800"/> },
+      { label: 'Yellow Cards', key: 'yellow_cards', icon: <div className="w-4 h-5 bg-yellow-400 rounded-sm border border-yellow-600"/> },
+    ],
+    scoringTerm: 'Goals',
+    scorerLabel: 'Top Scorers'
+  },
+  basketball: {
+    stats: [
+      { label: 'Points Per Game', key: 'ppg', icon: <Target size={20} className="text-orange-500"/> },
+      { label: 'Total Rebounds', key: 'rebounds', icon: <Activity size={20} className="text-purple-500"/> },
+      { label: 'Total Assists', key: 'assists', icon: <Footprints size={20} className="text-blue-500"/> },
+      { label: '3-Pointers', key: 'three_pointers', icon: <Zap size={20} className="text-yellow-500"/> },
+    ],
+    scoringTerm: 'Points',
+    scorerLabel: 'Top Scorers'
+  },
+  cricket: {
+    stats: [
+      { label: 'Total Runs', key: 'total_runs', icon: <Trophy size={20} className="text-yellow-600"/> },
+      { label: 'Wickets', key: 'wickets', icon: <Target size={20} className="text-red-500"/> },
+      { label: 'Centuries', key: 'centuries', icon: <Shield size={20} className="text-emerald-500"/> },
+      { label: 'High Score', key: 'high_score', icon: <Activity size={20} className="text-blue-500"/> },
+    ],
+    scoringTerm: 'Runs',
+    scorerLabel: 'Top Batsmen'
+  },
+  default: {
+    stats: [
+      { label: 'Matches Won', key: 'wins', icon: <Trophy size={20} className="text-yellow-500"/> },
+      { label: 'Matches Lost', key: 'losses', icon: <Activity size={20} className="text-red-500"/> },
+      { label: 'Win Streak', key: 'streak', icon: <Zap size={20} className="text-orange-500"/> },
+    ],
+    scoringTerm: 'Points',
+    scorerLabel: 'Top Performers'
+  }
+};
 
 export default function TeamProfile() {
   const router = useRouter()
@@ -45,7 +92,7 @@ export default function TeamProfile() {
   const isActiveMember = myMembership?.status === 'active'
   const isPending = myMembership?.status === 'pending'  
   const isGlobalCoachOrOrganizer = currentUserProfile?.role === 'coach' || currentUserProfile?.role === 'organizer'
-
+  const [matchForm, setMatchForm] = useState([]) // Stores ['W', 'L', 'D', 'W', 'W']
   useEffect(() => {
     if (id && user) fetchData()
   }, [id, user])
@@ -54,76 +101,118 @@ export default function TeamProfile() {
 // --- FETCH DATA (DEBUG VERSION) ---
 
 // --- FETCH DATA (SCHEMA-VERIFIED & DEBUGGED) ---
-  const fetchData = async () => {
+const fetchData = async () => {
     try {
       setLoading(true)
-      console.log("--- STARTING FETCH (SCHEMA VERIFIED) ---") // DEBUG
 
       // 1. User Profile
       const { data: myProfile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
       setCurrentUserProfile(myProfile)
 
       // 2. Team Details
-      console.log("Fetching Team ID:", id)
       const { data: teamData, error: teamError } = await supabase.from('teams').select('*').eq('id', id).single()
-      
       if (teamError || !teamData) {
-        console.error("Team Fetch Error:", teamError)
         setTeam(null); setLoading(false); return
       }
 
-      // ---------------------------------------------------------
-      // DYNAMIC WIN CALCULATION
-      // ---------------------------------------------------------
-      console.log("Fetching Match History...")
-      
-      // We select specific columns from your schema to calculate wins
-      const { data: matchHistory, error: matchError } = await supabase
+      // 3. Match History (Wins/Losses)
+      const { data: matchHistory } = await supabase
         .from('matches')
-        .select('team_a_id, team_b_id, score_a, score_b, status, winner_id')
+        .select('team_a_id, team_b_id, score_a, score_b, status, winner_id, date')
         .or(`team_a_id.eq.${id},team_b_id.eq.${id}`)
-        .eq('status', 'completed') // Matches schema: status is text
+        .eq('status', 'completed')
+        .order('date', { ascending: false })
 
-      if (matchError) console.error("Match History Error:", matchError)
-      
       let calculatedWins = 0;
-      
+      let tempForm = [];
+      let matchesPlayed = matchHistory ? matchHistory.length : 0;
+
       if (matchHistory) {
-          console.log(`Found ${matchHistory.length} finished matches. Calculating wins...`)
-          
-          matchHistory.forEach(match => {
+          matchHistory.forEach((match, index) => {
               const isTeamA = match.team_a_id === id;
               const isTeamB = match.team_b_id === id;
-              
-              // LOGIC: Check explicit winner_id first, then score fallback
-              if (match.winner_id === id) {
-                  console.log(`Match ${match.id}: Won via winner_id`)
-                  calculatedWins++;
-              } 
-              else if (!match.winner_id) {
-                  // Fallback: If no winner_id is set, calculate based on score
-                  if (isTeamA && (match.score_a > match.score_b)) {
-                      console.log(`Match (as Team A): Won via Score (${match.score_a}-${match.score_b})`)
-                      calculatedWins++;
-                  } else if (isTeamB && (match.score_b > match.score_a)) {
-                      console.log(`Match (as Team B): Won via Score (${match.score_b}-${match.score_a})`)
-                      calculatedWins++;
-                  }
+              let result = '';
+
+              if (match.winner_id === id) result = 'W';
+              else if (match.winner_id && match.winner_id !== id) result = 'L';
+              else {
+                  if (match.score_a === match.score_b) result = 'D';
+                  else if (isTeamA && match.score_a > match.score_b) result = 'W';
+                  else if (isTeamB && match.score_b > match.score_a) result = 'W';
+                  else result = 'L';
               }
+
+              if (result === 'W') calculatedWins++;
+              if (index < 5) tempForm.push(result);
           });
       }
+      teamData.wins = calculatedWins; 
+      setMatchForm(tempForm.reverse());
+
+      // 4. Fetch EVENTS and CALCULATE STATS
+      // We fetch all events for this team to calculate stats dynamically
+      const { data: allEvents } = await supabase
+        .from('match_events')
+        .select('*')
+        .eq('team_id', id)
+
+      // --- AGGREGATION LOGIC ---
+      const calculatedStats = {
+        goals_scored: 0,
+        yellow_cards: 0,
+        red_cards: 0,
+        clean_sheets: 0, // Difficult to calc from events alone
+        rebounds: 0,
+        assists: 0,
+        three_pointers: 0,
+        total_points: 0,
+        ppg: 0
+      };
+
+      const scorerMap = {}; // To track top players
+
+      if (allEvents) {
+        allEvents.forEach(event => {
+          const type = event.type?.toLowerCase() || '';
+          const meta = event.metadata || {};
+          
+          // SCORING LOGIC
+          let points = 0;
+          if (type === 'goal') points = 1;
+          if (type === 'score' || type === 'basket') points = meta.points || 2; // Default to 2 for basketball
+          if (type === 'three_pointer' || type === '3pt') points = 3;
+          if (type === 'free_throw') points = 1;
+
+          // Add to totals
+          calculatedStats.total_points += points;
+          if (type === 'goal') calculatedStats.goals_scored += 1;
+          
+          // BASKETBALL SPECIFIC
+          if (type === 'rebound') calculatedStats.rebounds += 1;
+          if (type === 'assist') calculatedStats.assists += 1;
+          if (points === 3) calculatedStats.three_pointers += 1;
+
+          // FOOTBALL SPECIFIC
+          if (type.includes('yellow')) calculatedStats.yellow_cards += 1;
+          if (type.includes('red')) calculatedStats.red_cards += 1;
+
+          // PLAYER LOGIC (Top Scorers)
+          if (points > 0 && event.player_id) {
+            scorerMap[event.player_id] = (scorerMap[event.player_id] || 0) + points;
+          }
+        });
+
+        // Calculate Average PPG (Points Per Game)
+        if (matchesPlayed > 0) {
+            calculatedStats.ppg = (calculatedStats.total_points / matchesPlayed).toFixed(1);
+        }
+      }
       
-      console.log("FINAL CALCULATED WINS:", calculatedWins)
-      teamData.wins = calculatedWins; // Override the stale DB value
-      // ---------------------------------------------------------
+      // INJECT CALCULATED STATS INTO TEAM OBJECT
+      // This fills the hole where 'stats' column was null
+      teamData.stats = calculatedStats; 
 
-      // 3. Owner Details
-      const { data: ownerData } = await supabase.from('profiles').select('username, avatar_url, positions_preferred').eq('id', teamData.owner_id).single()
-      const completeTeam = { ...teamData, owner: ownerData }
-      setTeam(completeTeam)
-      setEditForm({ ...completeTeam, is_recruiting: completeTeam.is_recruiting || false })
-
-      // 4. Members
+      // 5. Members & Profiles
       const { data: membersData } = await supabase
         .from('team_members')
         .select(`*, profiles:user_id (username, positions_preferred, avatar_url, jersey_number)`)
@@ -136,49 +225,29 @@ export default function TeamProfile() {
           jersey_number: m.profiles?.jersey_number,
           avatar_url: m.profiles?.avatar_url
       })) : []
+      
+      // Calculate Top Scorers List from the Map we built earlier
+      const scorersList = formattedMembers
+            .filter(m => m.status === 'active')
+            .map(m => ({ ...m, goals: scorerMap[m.user_id] || 0 })) // 'goals' is generic for points here
+            .filter(m => m.goals > 0)
+            .sort((a, b) => b.goals - a.goals);
+
+      setTopScorers(scorersList)
       setMembers(formattedMembers)
 
-      // 5. Follower Count
-      console.log("Fetching Follows...")
-      const { count, error: followError } = await supabase
-        .from('follows')
-        .select('*', { count: 'exact', head: true })
-        .eq('following_team_id', id)
-      
-      if (followError) console.error("Follow Fetch Error:", followError)
-      console.log("Follow Count Returned:", count)
-      
+      // 6. Owner & Final Set
+      const { data: ownerData } = await supabase.from('profiles').select('username, avatar_url, positions_preferred').eq('id', teamData.owner_id).single()
+      const completeTeam = { ...teamData, owner: ownerData }
+      setTeam(completeTeam)
+      setEditForm({ ...completeTeam, is_recruiting: completeTeam.is_recruiting || false })
+
+      // 7. Follows & Tournaments
+      const { count } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('following_team_id', id)
       setFollowerCount(count || 0)
 
-      // 6. Tournament History
-      const { data: tourneyData } = await supabase
-        .from('tournament_teams')
-        .select(`status, tournaments (id, name, start_date, venue)`)
-        .eq('team_id', id)
-
-      const formattedTourneys = tourneyData ? tourneyData.map(t => ({
-          ...t.tournaments,
-          city: t.tournaments?.venue,
-          registration_status: t.status
-      })) : []
-      setParticipatedTournaments(formattedTourneys)
-
-      // 7. Stats & Scorers
-      const { data: allEvents } = await supabase.from('match_events').select('*').eq('team_id', id)
-
-      if (allEvents) {
-        const goalEvents = allEvents.filter(e => e.type && e.type.toLowerCase() === 'goal')
-        const goalCounts = {}
-        allEvents.filter(e => e.type === 'goal').forEach(event => {
-            if(event.player_id) goalCounts[event.player_id] = (goalCounts[event.player_id] || 0) + 1
-        })
-        const scorersList = formattedMembers
-            .filter(m => m.status === 'active')
-            .map(m => ({ ...m, goals: goalCounts[m.user_id] || 0 }))
-            .filter(m => m.goals > 0)
-            .sort((a, b) => b.goals - a.goals)
-        setTopScorers(scorersList)
-      }
+      const { data: tourneyData } = await supabase.from('tournament_teams').select(`status, tournaments (id, name, start_date, venue)`).eq('team_id', id)
+      setParticipatedTournaments(tourneyData ? tourneyData.map(t => ({...t.tournaments, city: t.tournaments?.venue, registration_status: t.status})) : [])
       
     } catch (e) {
       console.error("CRITICAL FETCH ERROR:", e)
@@ -186,8 +255,6 @@ export default function TeamProfile() {
       setLoading(false)
     }
   }
-
-
   // --- HANDLERS ---
   const handleRequestJoin = async () => {
     try {
@@ -265,60 +332,60 @@ export default function TeamProfile() {
   const players = activeMembers.filter(m => m.role === 'player')
 const sportColor = team.sport === 'basketball' ? 'text-orange-600' : 'text-emerald-600'
 const sportBg = team.sport === 'basketball' ? 'bg-orange-50' : 'bg-emerald-50'
-  return (
-    <Layout title={`${team.name} - Huddle`}>
-      <div className="max-w-7xl mx-auto p-4 md:p-8">
+
+
+// 1. Determine Sport Logic
+const sportKey = team?.sport?.toLowerCase() || 'default';
+const currentConfig = STATS_CONFIG[sportKey] || STATS_CONFIG.default;
+
+// 2. Helper to get stat value safely
+const getStatValue = (key) => team?.stats?.[key] || 0;
+
+
+  return (<Layout title={`${team.name} - Huddle`}>
+      <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8">
         
-        {/* === HERO BANNER (Restored from Old Version) === */}
-        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden mb-8 relative z-10">
-          {/* Gradient Banner Background */}
-          <div className="h-40 bg-gradient-to-r from-indigo-600 to-blue-500 relative">
-             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-30"></div>
+        {/* === HEADER SECTION === */}
+        <div className="bg-white rounded-3xl shadow-lg border border-gray-200 overflow-hidden relative">
+          <div className="h-48 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 relative">
+             <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
           </div>
           
           <div className="px-8 pb-6">
              <div className="flex flex-col md:flex-row items-end -mt-16 gap-6">
-                {/* Team Logo (Overlapping) */}
-                <div className="w-36 h-36 bg-white rounded-2xl shadow-xl p-2 flex items-center justify-center relative z-10 flex-shrink-0">
+                {/* Logo */}
+                <div className="w-36 h-36 bg-white rounded-2xl shadow-xl p-2 flex items-center justify-center relative z-10">
                    <div className="w-full h-full bg-gray-50 rounded-xl overflow-hidden flex items-center justify-center border border-gray-100">
                       {team.logo_url ? <img src={team.logo_url} className="w-full h-full object-cover" /> : <Shield size={64} className="text-gray-300" />}
                    </div>
                 </div>
 
-                {/* Team Info & Stats */}
-                <div className="flex-1 mb-1">
-                   <div className="flex items-center gap-3">
+                {/* Team Info */}
+                <div className="flex-1 mb-2">
+                   <div className="flex items-center gap-3 mb-1">
                       <h1 className="text-4xl font-black text-gray-900 tracking-tight">{team.name}</h1>
                       {/* Form Guide */}
                       <div className="hidden md:flex gap-1 ml-4">
-                        {[1,1,0,1,1].map((r, i) => (
-                            <span key={i} className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold text-white ${r===1 ? 'bg-green-500' : 'bg-gray-400'}`}>
-                                {r===1 ? 'W' : 'L'}
+                        {matchForm.length > 0 ? matchForm.map((result, i) => (
+                            <span 
+                                key={i} 
+                                className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold text-white 
+                                ${result === 'W' ? 'bg-green-500' : result === 'L' ? 'bg-red-500' : 'bg-gray-400'}`}
+                                title={result === 'W' ? 'Win' : result === 'L' ? 'Loss' : 'Draw'}
+                            >
+                                {result}
                             </span>
-                        ))}
+                        )) : (
+                            <span className="text-xs text-gray-400 italic">No matches played</span>
+                        )}
                       </div>
                    </div>
-                   
-                   {/* STATS ROW: Added Follower Count Here */}
-                   <p className="text-gray-500 text-sm flex flex-wrap items-center gap-6 font-medium mt-2">
-                      <span className="flex items-center gap-1.5"><Users size={16} className="text-gray-400"/> {activeMembers.length} Members</span>
-                      <span className="flex items-center gap-1.5"><Trophy size={16} className="text-yellow-500"/> {team.wins || 0} Wins</span>
-                      <span className="flex items-center gap-1.5"><Heart size={16} className="text-purple-500 fill-purple-500"/> {followerCount} Followers</span>
-                   </p>
-                   
-                   {/* Join Code (Owner Only) */}
-                   {isOwner && team.join_code && (
-                       <div className="mt-3 inline-flex items-center gap-3 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors group" onClick={copyJoinCode}>
-                           <span className="text-[10px] uppercase font-bold text-gray-400">Join Code:</span>
-                           <span className="font-mono font-bold text-gray-800">{team.join_code}</span>
-                           <Copy size={14} className="text-gray-400 group-hover:text-indigo-600" />
-                       </div>
-                   )}
+                   <p className="text-gray-500 font-medium text-lg">{team.sport === 'football' ? 'Football Club' : 'Basketball Team'} • Est. {new Date(team.created_at).getFullYear()}</p>
                 </div>
-                
-                {/* Action Buttons (Right Aligned) */}
+
+                {/* Main Action Button */}
                 <div className="mt-4 md:mt-0 flex gap-3 items-center">
-                   {/* Follow Button Integrated Here */}
+
                    <FollowButton 
                         currentUser={user} 
                         targetId={team.id} 
@@ -326,29 +393,64 @@ const sportBg = team.sport === 'basketball' ? 'bg-orange-50' : 'bg-emerald-50'
                         onToggle={handleFollowToggle}
                    />
 
+
                    {isOwner ? (
-                      <button onClick={() => setIsEditing(true)} className="bg-slate-900 text-white hover:bg-slate-800 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
-                         <Edit3 size={18} /> Manage
+                      <button onClick={() => setIsEditing(true)} className="bg-slate-900 text-white hover:bg-slate-800 px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
+                         <Edit3 size={18} /> Manage Club
                       </button>
                    ) : isActiveMember ? (
-                      <button onClick={handleLeave} className="bg-white border-2 border-red-100 text-red-600 hover:bg-red-50 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-colors">
-                         <LogOut size={18} /> Leave
+                      <button onClick={handleLeave} className="bg-white border-2 border-red-100 text-red-600 hover:bg-red-50 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors">
+                         <LogOut size={18} /> Leave Club
                       </button>
                    ) : isPending ? (
-                      <button disabled className="bg-gray-100 text-gray-400 px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 cursor-not-allowed">
-                         <Activity size={18} /> Pending
+                      <button disabled className="bg-gray-100 text-gray-400 px-6 py-3 rounded-xl font-bold flex items-center gap-2 cursor-not-allowed">
+                         <Activity size={18} /> Pending...
                       </button>
                    ) : (
                       (!isGlobalCoachOrOrganizer && team.is_recruiting) && (
-                          <button onClick={handleRequestJoin} className="bg-indigo-600 text-white hover:bg-indigo-700 px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-transform hover:scale-105">
-                             Join Team
+                          <button onClick={handleRequestJoin} className="bg-indigo-600 text-white hover:bg-indigo-700 px-8 py-3 rounded-xl font-bold shadow-lg shadow-indigo-200 transition-transform hover:scale-105">
+                             Request to Join
                           </button>
                       )
                    )}
                 </div>
              </div>
+
+             {/* Quick Stats Bar */}
+             <div className="mt-8 pt-6 border-t border-gray-100 grid grid-cols-2 md:grid-cols-5 gap-6">
+                <div className="flex flex-col">
+                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Total Members</span>
+                   <span className="text-2xl font-black text-gray-800">{activeMembers.length}</span>
+                </div>
+                <div className="flex flex-col">
+                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Season Wins</span>
+                   <span className="text-2xl font-black text-emerald-600">{team.wins || 0}</span>
+                </div>
+                  <div className="flex flex-col">
+                   <span className="flex items-center gap-1.5"><Heart size={16} className="text-purple-500 fill-purple-500"/>  Followers</span>
+                   <span className="text-2xl font-black text-emerald-600">{followerCount || 0}</span>
+                </div>
+
+                
+                <div className="flex flex-col">
+                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Recruiting</span>
+                   <span className={`text-lg font-bold flex items-center gap-1 mt-1 ${team.is_recruiting ? 'text-blue-600' : 'text-gray-500'}`}>
+                      {team.is_recruiting ? <><UserPlus size={16}/> Active</> : <><Lock size={16}/> Closed</>}
+                   </span>
+                </div>
+                {isOwner && team.join_code && (
+                    <div onClick={copyJoinCode} className="flex flex-col cursor-pointer group">
+                        <span className="text-xs uppercase font-bold text-gray-400 tracking-wider group-hover:text-indigo-600 transition-colors">Team Code</span>
+                        <span className="text-lg font-mono font-bold text-gray-800 flex items-center gap-2">
+                            {team.join_code} <Copy size={14} className="text-gray-300 group-hover:text-indigo-600"/>
+                        </span>
+                    </div>
+                )}
+             </div>
           </div>
         </div>
+
+    
 
         {/* === TABS NAVIGATION === */}
         <div className="flex justify-center mb-8">
@@ -474,73 +576,99 @@ const sportBg = team.sport === 'basketball' ? 'bg-orange-50' : 'bg-emerald-50'
                 </div>
             )}
 
-            {/* 3. STATS TAB */}
-            {activeTab === 'stats' && (
-                <div className="space-y-6">
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                        <h3 className="font-bold text-gray-800 mb-6 border-b border-gray-100 pb-2">Season Analytics</h3>
-                        <TeamStats teamId={id} />
-                    </div>
-
-                    <div className="grid md:grid-cols-2 gap-6">
-                        {/* Top Scorers */}
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Trophy size={18} className="text-yellow-500"/> Top Scorers</h3>
-                            {topScorers.length > 0 ? (
-                                <div className="space-y-3">
-                                    {topScorers.map((scorer, i) => (
-                                        <div key={scorer.user_id} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl transition-colors">
-                                            <div className="flex items-center gap-3">
-                                                <span className="font-mono text-gray-400 font-bold w-4 text-center">{i+1}</span>
-                                                <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden">
-                                                    {scorer.avatar_url ? <img src={scorer.avatar_url} className="w-full h-full object-cover"/> : null}
-                                                </div>
-                                                <span className="font-bold text-gray-700 text-sm">{scorer.username}</span>
-                                            </div>
-                                            <div className="bg-indigo-50 text-indigo-700 font-bold px-3 py-1 rounded-full text-xs">
-                                                {scorer.goals} Goals
-                                            </div>
-                                        </div>
-                                    ))}
+        {/* 3. STATS TAB */}
+        {activeTab === 'stats' && (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                
+                {/* DYNAMIC SEASON ANALYTICS */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                    <h3 className="font-bold text-gray-800 mb-6 border-b border-gray-100 pb-2">Season Analytics</h3>
+                    
+                    {/* Grid of Dynamic Stats Cards */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {currentConfig.stats.map((stat, index) => (
+                            <div key={index} className="bg-gray-50 p-4 rounded-xl border border-gray-100 hover:border-blue-200 transition-colors">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <div className="p-2 bg-white rounded-lg shadow-sm">
+                                        {stat.icon}
+                                    </div>
+                                    <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                        {stat.label}
+                                    </span>
                                 </div>
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-                                    <Trophy size={32} className="mb-2 opacity-30"/>
-                                    <span className="text-sm">No goals recorded yet</span>
+                                <div className="text-2xl font-black text-gray-800 ml-1">
+                                    {getStatValue(stat.key)}
                                 </div>
-                            )}
-                        </div>
-
-                        {/* Tournament History */}
-                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><MapPin size={18} className="text-red-500"/> Tournaments</h3>
-                            {participatedTournaments.length > 0 ? (
-                                <div className="space-y-3">
-                                    {participatedTournaments.map((t) => (
-                                        <div key={t.id} className="flex justify-between items-center p-3 border border-gray-100 rounded-xl bg-gray-50/50">
-                                            <div>
-                                                <p className="font-bold text-gray-800 text-sm">{t.name}</p>
-                                                <p className="text-xs text-gray-500">{t.city || 'TBD'}</p>
-                                            </div>
-                                            <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${
-                                                t.registration_status === 'approved' ? 'bg-green-100 text-green-700' : 
-                                                t.registration_status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-200 text-gray-600'
-                                            }`}>
-                                                {t.registration_status}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="flex flex-col items-center justify-center h-48 text-gray-400">
-                                    <MapPin size={32} className="mb-2 opacity-30"/>
-                                    <span className="text-sm">No tournament history</span>
-                                </div>
-                            )}
-                        </div>
+                            </div>
+                        ))}
                     </div>
                 </div>
-            )}
+
+                <div className="grid md:grid-cols-2 gap-6">
+                    
+                    {/* DYNAMIC TOP SCORERS / PERFORMERS */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            <Trophy size={18} className="text-yellow-500"/> 
+                            {currentConfig.scorerLabel} {/* e.g. "Top Batsmen" or "Top Scorers" */}
+                        </h3>
+                        
+                        {topScorers.length > 0 ? (
+                            <div className="space-y-3">
+                                {topScorers.map((scorer, i) => (
+                                    <div key={scorer.user_id} className="flex justify-between items-center p-3 hover:bg-gray-50 rounded-xl transition-colors">
+                                        <div className="flex items-center gap-3">
+                                            <span className="font-mono text-gray-400 font-bold w-4 text-center">{i+1}</span>
+                                            <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden">
+                                                {scorer.avatar_url ? <img src={scorer.avatar_url} className="w-full h-full object-cover"/> : null}
+                                            </div>
+                                            <span className="font-bold text-gray-700 text-sm">{scorer.username}</span>
+                                        </div>
+                                        <div className="bg-indigo-50 text-indigo-700 font-bold px-3 py-1 rounded-full text-xs">
+                                            {/* Display Points/Runs dynamically */}
+                                            {scorer.score || scorer.goals} {currentConfig.scoringTerm}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+                                <Trophy size={32} className="mb-2 opacity-30"/>
+                                <span className="text-sm">No {currentConfig.scoringTerm.toLowerCase()} recorded yet</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* TOURNAMENT HISTORY (Unchanged layout) */}
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                        <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><MapPin size={18} className="text-red-500"/> Tournaments</h3>
+                        {participatedTournaments.length > 0 ? (
+                            <div className="space-y-3">
+                                {participatedTournaments.map((t) => (
+                                    <div key={t.id} className="flex justify-between items-center p-3 border border-gray-100 rounded-xl bg-gray-50/50">
+                                        <div>
+                                            <p className="font-bold text-gray-800 text-sm">{t.name}</p>
+                                            <p className="text-xs text-gray-500">{t.city || 'TBD'}</p>
+                                        </div>
+                                        <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${
+                                            t.registration_status === 'approved' ? 'bg-green-100 text-green-700' : 
+                                            t.registration_status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-200 text-gray-600'
+                                        }`}>
+                                            {t.registration_status}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+                                <MapPin size={32} className="mb-2 opacity-30"/>
+                                <span className="text-sm">No tournament history</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        )}
         </div>
 
       </div>
