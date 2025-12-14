@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
-import Link from 'next/link'
 import { 
-  Users, Shield, Trophy, UserPlus, Edit3, X, MapPin, 
-  Calendar, Activity, ClipboardList, LogOut, Check, Ban, Upload, Copy
+  Users, Shield, Trophy, UserPlus, Edit3, X, Activity, 
+  LogOut, Check, Ban, Upload, Copy, Heart
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
 import Layout from '../../components/ui/Layout'
 import Loading from '../../components/ui/Loading'
 import TeamSchedule from '@/components/teams/TeamSchedule'
-import StatCard from '@/components/ui/StatCard'
 import TeamStats from '@/components/teams/TeamStats'
+import FollowButton from '@/components/ui/FollowButton'
+import CommentSection from '../../components/ui/CommentSection' // <--- IMPORTED HERE
 
 export default function TeamProfile() {
   const router = useRouter()
@@ -20,7 +20,8 @@ export default function TeamProfile() {
   
   const [team, setTeam] = useState(null)
   const [members, setMembers] = useState([])
-  const [currentUserProfile, setCurrentUserProfile] = useState(null) // To check current user's global role
+  const [currentUserProfile, setCurrentUserProfile] = useState(null)
+  const [followerCount, setFollowerCount] = useState(0)
   const [loading, setLoading] = useState(true)
 
   // Edit Mode State
@@ -33,19 +34,11 @@ export default function TeamProfile() {
   const isOwner = team?.owner_id === user?.id
   const myMembership = members.find(m => m.user_id === user?.id)
   
-  // Filter members based on status
   const activeMembers = members.filter(m => m.status === 'active')
   const pendingRequests = members.filter(m => m.status === 'pending')
 
-  // Check specific user statuses within THIS team
   const isActiveMember = myMembership?.status === 'active'
   const isPending = myMembership?.status === 'pending'
-  
-  // Permission: Coach or Captain or Owner can set lineups (Logic usually handled in Schedule/Modal, but status defined here)
-  const isTeamStaff = isOwner || (isActiveMember && (myMembership?.role === 'coach' || myMembership?.role === 'captain'))
-
-  // Global Role Check (from public.profiles) to prevent other coaches from joining
-  // Assuming 'role' in profiles table is 'fan', 'player', 'coach', or 'organizer'
   const isGlobalCoachOrOrganizer = currentUserProfile?.role === 'coach' || currentUserProfile?.role === 'organizer'
 
   useEffect(() => {
@@ -54,21 +47,12 @@ export default function TeamProfile() {
 
   const fetchData = async () => {
     try {
-      // 1. Fetch Current User Profile (for global role check)
-      const { data: myProfile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single()
-      
+      // 1. Fetch User Profile
+      const { data: myProfile } = await supabase.from('profiles').select('role').eq('id', user.id).single()
       setCurrentUserProfile(myProfile)
 
-      // 2. Fetch Team Details
-      const { data: teamData, error: teamError } = await supabase
-        .from('teams')
-        .select('*')
-        .eq('id', id)
-        .single()
+      // 2. Fetch Team Data
+      const { data: teamData, error: teamError } = await supabase.from('teams').select('*').eq('id', id).single()
 
       if (teamError || !teamData) {
         setTeam(null)
@@ -76,39 +60,26 @@ export default function TeamProfile() {
         return
       }
 
-      // 3. Fetch Owner's Profile Manually
-      const { data: ownerData } = await supabase
-        .from('profiles')
-        .select('username, avatar_url, positions_preferred') 
-        .eq('id', teamData.owner_id)
-        .single()
+      // 3. Fetch Owner Data
+      const { data: ownerData } = await supabase.from('profiles').select('username, avatar_url, positions_preferred').eq('id', teamData.owner_id).single()
       
       const ownerPosition = Array.isArray(ownerData?.positions_preferred) 
         ? ownerData.positions_preferred.join(', ') 
         : ownerData?.positions_preferred || 'Manager';
 
-      const completeOwner = ownerData ? {
-        ...ownerData,
-        position: ownerPosition
-      } : null
-
-      const completeTeam = { ...teamData, owner: completeOwner }
+      const completeTeam = { ...teamData, owner: { ...ownerData, position: ownerPosition } }
       setTeam(completeTeam)
       setEditForm(completeTeam)
 
-      // 4. Fetch ALL Members
+      // 4. Fetch Members
       const { data: membersData } = await supabase
         .from('team_members')
-        .select(`
-          *,
-          profiles:user_id (username, positions_preferred, avatar_url, jersey_number)
-        `)
+        .select(`*, profiles:user_id (username, positions_preferred, avatar_url, jersey_number)`)
         .eq('team_id', id)
       
       const formattedMembers = membersData ? membersData.map(m => {
         const posRaw = m.profiles?.positions_preferred;
         const posStr = Array.isArray(posRaw) ? posRaw.join(', ') : posRaw;
-
         return {
             ...m,
             username: m.profiles?.username,
@@ -117,8 +88,15 @@ export default function TeamProfile() {
             avatar_url: m.profiles?.avatar_url
         }
       }) : []
-      
       setMembers(formattedMembers)
+
+      // 5. Fetch Follower Count
+      const { count } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_team_id', id)
+      
+      setFollowerCount(count || 0)
       
     } catch (e) {
       console.error("Global fetch error:", e)
@@ -128,7 +106,6 @@ export default function TeamProfile() {
   }
 
   // --- 2. ACTIONS ---
-
   const handleRequestJoin = async () => {
     try {
       const res = await fetch(`/api/teams/${id}/join`, {
@@ -136,12 +113,10 @@ export default function TeamProfile() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user.id }) 
       })
-      
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.message || 'Request failed')
       }
-      
       alert("Request sent to team owner!")
       fetchData() 
     } catch (error) {
@@ -172,7 +147,6 @@ export default function TeamProfile() {
   const handleUpdateTeam = async (e) => {
     e.preventDefault()
     setUploading(true)
-
     try {
       let finalLogoUrl = editForm.logo_url
       if (logoFile) {
@@ -183,14 +157,12 @@ export default function TeamProfile() {
         const { data: urlData } = supabase.storage.from('team-logos').getPublicUrl(fileName)
         finalLogoUrl = urlData.publicUrl
       }
-
       const { error } = await supabase.from('teams').update({
           name: editForm.name,
           description: editForm.description,
           sport: editForm.sport,
           logo_url: finalLogoUrl
         }).eq('id', id)
-
       if (error) throw error
       setTeam({ ...team, ...editForm, logo_url: finalLogoUrl })
       setIsEditing(false)
@@ -209,13 +181,15 @@ export default function TeamProfile() {
     }
   }
 
+  // Handle immediate UI update when following/unfollowing
+  const handleFollowToggle = (isNowFollowing) => {
+    setFollowerCount(prev => isNowFollowing ? prev + 1 : prev - 1)
+  }
+
   if (loading) return <Loading />
   if (!team) return <Layout><div className="p-10 text-center">Team not found</div></Layout>
 
-  // --- ROSTER LOGIC ---
   let coaches = activeMembers.filter(m => m.role === 'coach' || m.role === 'owner')
-  
-  // Ensure owner is visible in coaches list
   const ownerInList = coaches.find(m => m.user_id === team.owner_id)
   if (!ownerInList && team.owner) {
     coaches.unshift({
@@ -226,16 +200,13 @@ export default function TeamProfile() {
         position: team.owner.position
     })
   }
-
   const players = activeMembers.filter(m => m.role === 'player')
-
   const sportColor = team.sport === 'basketball' ? 'text-orange-600' : 'text-emerald-600'
   const sportBg = team.sport === 'basketball' ? 'bg-orange-50' : 'bg-emerald-50'
 
   return (
     <Layout title={`${team.name} - Huddle`}>
       <div className="max-w-7xl mx-auto p-4 md:p-8">
-        
         {/* EDIT MODAL */}
         {isEditing && (
             <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
@@ -292,12 +263,14 @@ export default function TeamProfile() {
                       {team.is_recruiting && <span className="bg-blue-50 text-blue-600 text-[10px] font-bold px-2 py-0.5 rounded uppercase flex items-center gap-1"><UserPlus size={10} /> Recruiting</span>}
                    </div>
                    <h1 className="text-4xl font-bold text-gray-900 mb-2">{team.name}</h1>
-                   <p className="text-gray-500 text-sm flex items-center gap-4 font-medium">
-                      <span className="flex items-center gap-1"><Users size={16} className="text-gray-400"/> {activeMembers.length} Members</span>
-                      <span className="flex items-center gap-1"><Trophy size={16} className="text-yellow-500"/> {team.wins || 0} Wins</span>
+                   
+                   {/* STATS ROW WITH FOLLOWER COUNT */}
+                   <p className="text-gray-500 text-sm flex items-center gap-6 font-medium">
+                      <span className="flex items-center gap-1.5"><Users size={16} className="text-gray-400"/> {activeMembers.length} Members</span>
+                      <span className="flex items-center gap-1.5"><Trophy size={16} className="text-yellow-500"/> {team.wins || 0} Wins</span>
+                      <span className="flex items-center gap-1.5"><Heart size={16} className="text-purple-500 fill-purple-500"/> {followerCount} Followers</span>
                    </p>
                    
-                   {/* JOIN CODE DISPLAY (OWNER ONLY) */}
                    {isOwner && team.join_code && (
                        <div className="mt-3 inline-flex items-center gap-3 bg-gray-50 border border-gray-200 px-4 py-2 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors group" onClick={copyJoinCode}>
                            <div className="flex flex-col">
@@ -310,7 +283,15 @@ export default function TeamProfile() {
                 </div>
                 
                 {/* 3. BUTTON LOGIC */}
-                <div className="mt-4 md:mt-14">
+                <div className="mt-4 md:mt-14 flex flex-col md:flex-row gap-3 items-center">
+                   
+                   <FollowButton 
+                        currentUser={user} 
+                        targetId={team.id} 
+                        targetType="team" 
+                        onToggle={handleFollowToggle}
+                   />
+
                    {isOwner ? (
                       <button onClick={() => setIsEditing(true)} className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold py-2 px-4 rounded-lg text-sm flex items-center gap-2 shadow-sm transition-all"><Edit3 size={16} /> Edit Team</button>
                    ) : isActiveMember ? (
@@ -320,7 +301,6 @@ export default function TeamProfile() {
                         <Activity size={16} className="animate-pulse" /> Request Pending...
                       </button>
                    ) : (
-                      // RESTRICT JOIN: If user is a coach or organizer, they cannot see the Join button
                       !isGlobalCoachOrOrganizer && (
                           <button onClick={handleRequestJoin} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md shadow-indigo-200 text-sm transition-all">
                              Request to Join
@@ -334,10 +314,6 @@ export default function TeamProfile() {
 
         <div className="grid lg:grid-cols-3 gap-8">
            <div className="space-y-6">
-
-             {/* REMOVED: Tactical Center (Default Strategy) as requested */}
-
-             {/* ABOUT */}
              <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
                  <h3 className="font-bold text-gray-900 mb-4">About</h3>
                  <p className="text-sm text-gray-600 mb-6 leading-relaxed">{team.description || "No bio available."}</p>
@@ -347,7 +323,6 @@ export default function TeamProfile() {
 
            <div className="lg:col-span-2 space-y-6">
              
-             {/* PENDING REQUESTS (OWNER ONLY) */}
              {isOwner && (
                 <div className="bg-yellow-50 rounded-2xl border border-yellow-200 shadow-sm overflow-hidden animate-in slide-in-from-bottom-2 mb-6">
                     <div className="px-6 py-4 border-b border-yellow-100 flex justify-between items-center">
@@ -387,19 +362,12 @@ export default function TeamProfile() {
                 </div>
              )}
 
-             {/* SCHEDULE */}
-             {/* The TeamSchedule component should likely handle the Match Lineup Modal internally. */}
-             {/* We pass the teamID. If permissions issues persist in the modal, they must be fixed in TeamSchedule or MatchLineupModal.js */}
              <TeamSchedule teamId={id} />
-            
-             {/* STATS */}
              <TeamStats teamId={id} />
 
-             {/* ROSTER */}
              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                  <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-200 flex justify-between items-center"><span className="font-bold text-gray-700 flex items-center gap-2"><Users size={18} className="text-indigo-500"/> Active Roster</span><span className="text-xs font-semibold bg-white border border-gray-200 px-2 py-1 rounded text-gray-600">{coaches.length + players.length} Players</span></div>
                  
-                 {/* COACHES LIST */}
                  {coaches.map(staff => (
                     <div key={staff.user_id} className="px-6 py-4 border-b border-gray-100 flex items-center gap-4 bg-indigo-50/30">
                        <div className="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-sm overflow-hidden">
@@ -421,6 +389,15 @@ export default function TeamProfile() {
                     </div>
                  ))}
              </div>
+
+             {/* --- COMMENT SECTION ADDED HERE --- */}
+             <CommentSection 
+                targetId={id} 
+                table="team_comments" 
+                foreignKey="team_id" 
+                title="Fan Wall" 
+            />
+
            </div>
         </div>
       </div>

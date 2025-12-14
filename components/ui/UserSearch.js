@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { supabase } from '../../lib/supabaseClient'
-import { Search, X, Loader, User } from 'lucide-react'
+import { Search, X, Loader, User, Shield } from 'lucide-react'
 
 export default function UserSearch({ className = "" }) {
   const [query, setQuery] = useState('')
@@ -23,7 +23,7 @@ export default function UserSearch({ className = "" }) {
     return () => document.removeEventListener("mousedown", handleClickOutside)
   }, [])
 
-  // Clear search when route changes (user clicks a result)
+  // Clear search when route changes
   useEffect(() => {
     setQuery('')
     setShowResults(false)
@@ -37,15 +37,28 @@ export default function UserSearch({ className = "" }) {
         setShowResults(true)
         
         try {
-          const { data, error } = await supabase
+          // 1. Search Users
+          const userPromise = supabase
             .from('profiles')
             .select('id, username, avatar_url, role')
-            .ilike('username', `%${query}%`) // Case-insensitive partial match
-            .limit(5)
+            .ilike('username', `%${query}%`)
+            .limit(3)
 
-          if (!error) {
-            setResults(data || [])
-          }
+          // 2. Search Teams
+          const teamPromise = supabase
+            .from('teams')
+            .select('id, name, logo_url, sport')
+            .ilike('name', `%${query}%`)
+            .limit(3)
+
+          const [userRes, teamRes] = await Promise.all([userPromise, teamPromise])
+
+          // 3. Format & Merge
+          const users = (userRes.data || []).map(u => ({ ...u, type: 'user' }))
+          const teams = (teamRes.data || []).map(t => ({ ...t, type: 'team' }))
+
+          setResults([...teams, ...users]) // Teams first, then users
+          
         } catch (error) {
           console.error("Search error:", error)
         } finally {
@@ -55,7 +68,7 @@ export default function UserSearch({ className = "" }) {
         setResults([])
         setShowResults(false)
       }
-    }, 300) // Wait 300ms after typing stops
+    }, 300)
 
     return () => clearTimeout(delayDebounceFn)
   }, [query])
@@ -69,7 +82,7 @@ export default function UserSearch({ className = "" }) {
         <input
           type="text"
           className="block w-full pl-10 pr-10 py-2 border border-gray-200 rounded-full leading-5 bg-gray-50 text-gray-900 placeholder-gray-500 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-all"
-          placeholder="Search players, coaches..."
+          placeholder="Search teams, players..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => {
@@ -94,24 +107,30 @@ export default function UserSearch({ className = "" }) {
         <div className="absolute mt-2 w-full bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-50 animate-in fade-in zoom-in-95 duration-100">
           {results.length > 0 ? (
             <ul>
-              {results.map((profile) => (
-                <li key={profile.id} className="border-b border-gray-50 last:border-0">
+              {results.map((item) => (
+                <li key={`${item.type}-${item.id}`} className="border-b border-gray-50 last:border-0">
                   <Link 
-                    href={`/profile/${profile.id}`}
+                    href={item.type === 'team' ? `/teams/${item.id}` : `/profile/${item.id}`}
                     className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer"
                   >
-                    <div className="h-8 w-8 rounded-full bg-gray-200 overflow-hidden flex-shrink-0">
-                      {profile.avatar_url ? (
-                        <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
+                    {/* Avatar / Logo */}
+                    <div className="h-8 w-8 rounded-full bg-gray-100 overflow-hidden flex-shrink-0 flex items-center justify-center border border-gray-200">
+                      {item.type === 'team' ? (
+                         item.logo_url ? <img src={item.logo_url} className="h-full w-full object-cover" /> : <Shield size={16} className="text-indigo-500" />
                       ) : (
-                        <div className="h-full w-full flex items-center justify-center">
-                          <User size={16} className="text-gray-500" />
-                        </div>
+                         item.avatar_url ? <img src={item.avatar_url} className="h-full w-full object-cover" /> : <User size={16} className="text-gray-400" />
                       )}
                     </div>
+                    
+                    {/* Details */}
                     <div>
-                      <p className="text-sm font-semibold text-gray-900">{profile.username}</p>
-                      <p className="text-xs text-gray-500 capitalize">{profile.role}</p>
+                      <p className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                        {item.type === 'team' ? item.name : item.username}
+                        {item.type === 'team' && <span className="text-[9px] uppercase bg-gray-100 text-gray-600 px-1 rounded">Team</span>}
+                      </p>
+                      <p className="text-xs text-gray-500 capitalize">
+                        {item.type === 'team' ? item.sport : item.role}
+                      </p>
                     </div>
                   </Link>
                 </li>
@@ -120,7 +139,7 @@ export default function UserSearch({ className = "" }) {
           ) : (
             !loading && (
               <div className="px-4 py-6 text-center text-gray-500 text-sm">
-                No users found for "{query}"
+                No results found for "{query}"
               </div>
             )
           )}
