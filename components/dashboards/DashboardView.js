@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import Head from 'next/head' // <--- 1. IMPORT THIS
 import { 
   Shield, Trophy, MapPin, Users, Activity, User, Heart, 
   Star, TrendingUp, Search, Swords, ClipboardList, Clock,
@@ -7,7 +8,7 @@ import {
 } from 'lucide-react'
 import DashboardSection from './DashboardSection'
 import StatCard from '../ui/StatCard'
-import DashboardCard from '../ui/DashboardCard' // The new gradient card component
+import DashboardCard from '../ui/DashboardCard'
 
 // Unique Gradients for distinct sections
 const GRADIENTS = {
@@ -25,6 +26,7 @@ const GRADIENTS = {
 
 export default function DashboardView({ user, profile }) {
   const [data, setData] = useState({ teams: [], tournaments: [] })
+  const [myTeamIds, setMyTeamIds] = useState([]) 
   const [loading, setLoading] = useState(true)
   const [quote, setQuote] = useState({ text: "", author: "" })
 
@@ -48,14 +50,30 @@ export default function DashboardView({ user, profile }) {
     ]
   }
 
+  // --- HELPER: Filter Tournaments I am participating in ---
+  const getMyTournaments = () => {
+    if (profile.role === 'organizer') {
+        return data.tournaments.filter(t => t.organizer_id === user.id)
+    }
+    if (profile.role === 'coach' || profile.role === 'player') {
+        return data.tournaments.filter(t => {
+            if (!t.teams) return false
+            return t.teams.some(item => myTeamIds.includes(item.team_id))
+        })
+    }
+    return []
+  }
+
+  const myTournaments = getMyTournaments()
+
   const roleConfig = {
     organizer: {
       theme: { from: 'from-blue-600', to: 'to-indigo-700', icon: Shield },
       title: 'Organizer Workspace',
       stats: [
-        { label: 'Total Events', value: data.tournaments.length, icon: Trophy, color: 'blue' },
-        { label: 'Active', value: data.tournaments.filter(t => t.status === 'active').length, icon: Activity, color: 'green' },
-        { label: 'Upcoming', value: data.tournaments.filter(t => t.status === 'upcoming').length, icon: Clock, color: 'yellow' }
+        { label: 'Total Events', value: myTournaments.length, icon: Trophy, color: 'blue' },
+        { label: 'Active', value: myTournaments.filter(t => t.status === 'live').length, icon: Activity, color: 'green' },
+        { label: 'Upcoming', value: myTournaments.filter(t => t.status === 'upcoming').length, icon: Clock, color: 'yellow' }
       ]
     },
     coach: {
@@ -63,7 +81,7 @@ export default function DashboardView({ user, profile }) {
       title: "Coach's Locker Room",
       stats: [
         { label: 'My Teams', value: data.teams.length, icon: Activity, color: 'blue' },
-        { label: 'Active Tournaments', value: data.tournaments.length, icon: Trophy, color: 'yellow' },
+        { label: 'Active Tournaments', value: myTournaments.length, icon: Trophy, color: 'yellow' },
         { label: 'Tactics Created', value: '3', icon: ClipboardList, color: 'green' } 
       ]
     },
@@ -72,7 +90,7 @@ export default function DashboardView({ user, profile }) {
       title: 'Player Hub',
       stats: [
         { label: 'Team Memberships', value: data.teams.length, icon: Activity, color: 'blue' },
-        { label: 'Tournaments', value: data.tournaments.length, icon: Trophy, color: 'green' },
+        { label: 'Tournaments', value: myTournaments.length, icon: Trophy, color: 'green' },
         { label: 'Goals', value: '-', icon: Star, color: 'yellow' }
       ]
     },
@@ -99,28 +117,27 @@ export default function DashboardView({ user, profile }) {
     async function fetchData() {
       try {
         if (profile.role === 'organizer') {
-          const res = await fetch('/api/tournaments/created')
+          const res = await fetch('/api/tournaments/all')
           if (res.ok) setData({ teams: [], tournaments: await res.json() })
         } 
-        else if (profile.role === 'coach') {
-          const [teamsRes, tourneysRes] = await Promise.all([
-            fetch('/api/teams/created'),
-            fetch('/api/tournaments/registered')
+        else if (profile.role === 'coach' || profile.role === 'player') {
+          const teamEndpoint = profile.role === 'coach' ? '/api/teams/created' : '/api/teams/joined'
+          
+          const [teamsRes, allTourneysRes, myTeamsRes] = await Promise.all([
+            fetch(teamEndpoint, { headers: { 'Authorization': `Bearer ${user.access_token || ''}` } }), // Added safety
+            fetch('/api/tournaments/all'),
+            fetch('/api/teams/my-teams')
           ])
+
+          const teamsData = teamsRes.ok ? await teamsRes.json() : []
+          const tourneysData = allTourneysRes.ok ? await allTourneysRes.json() : []
+          const myTeamIdsData = myTeamsRes.ok ? await myTeamsRes.json() : []
+
           setData({
-            teams: teamsRes.ok ? await teamsRes.json() : [],
-            tournaments: tourneysRes.ok ? await tourneysRes.json() : []
+            teams: teamsData,
+            tournaments: tourneysData
           })
-        }
-        else if (profile.role === 'player') {
-          const [teamsRes, tourneysRes] = await Promise.all([
-            fetch('/api/teams/joined'),
-            fetch('/api/tournaments/player')
-          ])
-          setData({
-            teams: teamsRes.ok ? await teamsRes.json() : [],
-            tournaments: tourneysRes.ok ? await tourneysRes.json() : []
-          })
+          setMyTeamIds(myTeamIdsData)
         }
       } catch (e) {
         console.error("Dashboard fetch error:", e)
@@ -128,14 +145,19 @@ export default function DashboardView({ user, profile }) {
         setLoading(false)
       }
     }
-    fetchData()
-  }, [profile.role])
+    if (user) fetchData()
+  }, [profile.role, user])
 
   if (loading) return <div className="p-6 text-center text-gray-500 animate-pulse">Loading dashboard...</div>
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto p-4 md:p-8">
       
+      {/* --- 2. THE CRITICAL FIX: Safe Title Tag --- */}
+      <Head>
+        <title>{`Dashboard - ${profile.username || 'User'}`}</title>
+      </Head>
+
       {/* --- BANNER --- */}
       <div className={`relative rounded-2xl shadow-xl overflow-hidden bg-gradient-to-r ${theme.from} ${theme.to} text-white`}>
         <div className="relative z-10 p-8 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -179,7 +201,7 @@ export default function DashboardView({ user, profile }) {
                 icon={Trophy} 
                 link="/tournament_portal" 
                 linkText="View All" 
-                items={data.tournaments} 
+                items={myTournaments} 
                 emptyText="No tournaments created yet." 
                 type="tournament" 
               />
@@ -204,7 +226,7 @@ export default function DashboardView({ user, profile }) {
                 icon={Trophy} 
                 link="/tournament_portal"
                 linkText="Browse" 
-                items={data.tournaments} 
+                items={myTournaments} 
                 emptyText="No active tournaments."
                 type="tournament" 
               />
@@ -255,7 +277,7 @@ export default function DashboardView({ user, profile }) {
                 title="Availability"
                 subtitle="Match status."
                 icon={Calendar}
-                link="/player-availability" // Kept your original link
+                link="/player-availability" 
                 gradient={GRADIENTS.availability}
               >
                 <div className="flex gap-4">
@@ -277,7 +299,7 @@ export default function DashboardView({ user, profile }) {
                 title="Venue Manager"
                 subtitle="Add and manage stadiums."
                 icon={MapPin}
-                link="/tournament_portal" // Kept your original link
+                link="/tournament_portal" 
                 gradient={GRADIENTS.venue}
               />
             )}
@@ -288,7 +310,7 @@ export default function DashboardView({ user, profile }) {
                 title="Tactics Board"
                 subtitle="Draw formations and strategies."
                 icon={Swords}
-                link="/tactics/new" // Kept your original link
+                link="/tactics/new" 
                 gradient={GRADIENTS.tactics}
               />
             )}
@@ -299,7 +321,7 @@ export default function DashboardView({ user, profile }) {
                 title="Training Planner"
                 subtitle="Create and manage sessions."
                 icon={ClipboardList}
-                link="/training" // Kept your original link
+                link="/training" 
                 gradient={GRADIENTS.training}
               />
             )}
@@ -310,7 +332,7 @@ export default function DashboardView({ user, profile }) {
                 title="Team Portal"
                 subtitle="Manage rosters & memberships."
                 icon={Users}
-                link="/team_portal" // Kept your original link
+                link="/team_portal" 
                 gradient={GRADIENTS.teams}
               />
             )}
@@ -321,7 +343,7 @@ export default function DashboardView({ user, profile }) {
                 title="Merch Shop"
                 subtitle="Buy official merchandise."
                 icon={Heart}
-                link="/merch" // Kept your original link
+                link="/merch" 
                 gradient={GRADIENTS.merch}
               />
             )}
@@ -331,7 +353,7 @@ export default function DashboardView({ user, profile }) {
               title="Leaderboards"
               subtitle="View standings and top scorers."
               icon={TrendingUp}
-              link="/leaderboards" // Kept your original link
+              link="/leaderboards" 
               gradient={GRADIENTS.leaderboard}
             />
 
@@ -340,7 +362,7 @@ export default function DashboardView({ user, profile }) {
               title="Tournaments"
               subtitle={profile.role === 'organizer' ? 'Manage your events.' : 'Browse & Register.'}
               icon={Trophy}
-              link="/tournament_portal" // Kept your original link
+              link="/tournament_portal" 
               gradient={GRADIENTS.tournaments}
             />
 

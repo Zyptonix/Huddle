@@ -22,7 +22,8 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'Only organizers can create tournaments.' })
   }
 
-  const { name, sport, format, startDate } = req.body
+  // CHANGED: We now destructure 'start_date' to match the frontend update
+  const { name, sport, format, start_date } = req.body
 
   if (!name || !sport || !format) {
     return res.status(400).json({ error: 'Name, sport, and format are required' })
@@ -36,8 +37,10 @@ export default async function handler(req, res) {
         name,
         sport,
         format,
-        start_date: startDate || null,
-        organizer_id: user.id
+        // CHANGED: No need to rename anymore, it's consistent
+        start_date: start_date || null, 
+        organizer_id: user.id,
+        status: 'upcoming' // Good practice to set a default status
       }
     ])
     .select()

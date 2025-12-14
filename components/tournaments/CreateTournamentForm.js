@@ -3,15 +3,18 @@ import { PlusCircle, Calendar } from 'lucide-react'
 import Card from '../ui/Card'
 import Input from '../ui/Input'
 import Button from '../ui/Button'
-import Select from '../ui/Select' // NEW
-import Alert from '../ui/Alert' // NEW
-import SportSelector from '../common/SportSelector' // NEW
+import Select from '../ui/Select' 
+import Alert from '../ui/Alert'
+import SportSelector from '../common/SportSelector'
 
 export default function CreateTournamentForm({ onTournamentCreated }) {
   const [name, setName] = useState('')
   const [sport, setSport] = useState('football')
   const [format, setFormat] = useState('knockout')
-  const [startDate, setStartDate] = useState('')
+  
+  // CHANGED: Renamed to start_date to match DB
+  const [start_date, setStartDate] = useState('') 
+  
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -20,10 +23,18 @@ export default function CreateTournamentForm({ onTournamentCreated }) {
     setLoading(true)
     setError(null)
 
+    // CHANGED: We now send 'start_date' instead of 'startDate'
+    const payload = { 
+        name, 
+        sport, 
+        format, 
+        start_date // Matches the DB column name now
+    }
+
     const res = await fetch('/api/tournaments/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, sport, format, startDate }),
+      body: JSON.stringify(payload),
     })
 
     if (!res.ok) {
@@ -45,7 +56,13 @@ export default function CreateTournamentForm({ onTournamentCreated }) {
       </h3>
       
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Input label="Tournament Name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Summer Cup" required />
+        <Input 
+            label="Tournament Name" 
+            value={name} 
+            onChange={(e) => setName(e.target.value)} 
+            placeholder="e.g. Summer Cup" 
+            required 
+        />
 
         <SportSelector selected={sport} onChange={setSport} />
 
@@ -60,7 +77,15 @@ export default function CreateTournamentForm({ onTournamentCreated }) {
           ]}
         />
 
-        <Input label="Start Date" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} icon={<Calendar size={18}/>} />
+        {/* CHANGED: type="datetime-local" allows selecting time */}
+        <Input 
+            label="Start Date & Time" 
+            type="datetime-local" 
+            value={start_date} 
+            onChange={(e) => setStartDate(e.target.value)} 
+            icon={<Calendar size={18}/>} 
+            required
+        />
 
         <Alert type="error" message={error} />
 
