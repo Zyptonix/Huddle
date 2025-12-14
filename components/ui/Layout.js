@@ -24,7 +24,7 @@ export default function Layout({ children, title }) {
       <Head>
         {/* Now safe to render */}
         <title>{safeTitle}</title>
-        <link rel="icon" href="/huddle.jpg" />
+        <link rel="icon" href="/images/huddle.png" />
       </Head>
       
       <Navbar />
