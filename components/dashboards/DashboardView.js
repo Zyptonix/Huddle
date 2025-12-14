@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import Head from 'next/head' // <--- 1. IMPORT THIS
 import { 
   Shield, Trophy, MapPin, Users, Activity, User, Heart, 
   Star, TrendingUp, Search, Swords, ClipboardList, Clock,
@@ -25,7 +26,7 @@ const GRADIENTS = {
 
 export default function DashboardView({ user, profile }) {
   const [data, setData] = useState({ teams: [], tournaments: [] })
-  const [myTeamIds, setMyTeamIds] = useState([]) // <--- NEW: Store My Team IDs
+  const [myTeamIds, setMyTeamIds] = useState([]) 
   const [loading, setLoading] = useState(true)
   const [quote, setQuote] = useState({ text: "", author: "" })
 
@@ -51,20 +52,15 @@ export default function DashboardView({ user, profile }) {
 
   // --- HELPER: Filter Tournaments I am participating in ---
   const getMyTournaments = () => {
-    // If I am an organizer, I want the ones I created (already handled by API usually, but safe to filter)
     if (profile.role === 'organizer') {
         return data.tournaments.filter(t => t.organizer_id === user.id)
     }
-    
-    // If I am Coach/Player, check if my teams are in the tournament
     if (profile.role === 'coach' || profile.role === 'player') {
         return data.tournaments.filter(t => {
             if (!t.teams) return false
-            // Check if any of the tournament's teams match my team IDs
             return t.teams.some(item => myTeamIds.includes(item.team_id))
         })
     }
-    
     return []
   }
 
@@ -121,20 +117,14 @@ export default function DashboardView({ user, profile }) {
     async function fetchData() {
       try {
         if (profile.role === 'organizer') {
-          // Organizers just need their own events
-          const res = await fetch('/api/tournaments/all') // Changed to all, we filter locally for consistency
+          const res = await fetch('/api/tournaments/all')
           if (res.ok) setData({ teams: [], tournaments: await res.json() })
         } 
         else if (profile.role === 'coach' || profile.role === 'player') {
-          // Players/Coaches need: 
-          // 1. Their Teams
-          // 2. ALL Tournaments (to filter)
-          // 3. Their Team IDs (to know what to filter)
-          
           const teamEndpoint = profile.role === 'coach' ? '/api/teams/created' : '/api/teams/joined'
           
           const [teamsRes, allTourneysRes, myTeamsRes] = await Promise.all([
-            fetch(teamEndpoint),
+            fetch(teamEndpoint, { headers: { 'Authorization': `Bearer ${user.access_token || ''}` } }), // Added safety
             fetch('/api/tournaments/all'),
             fetch('/api/teams/my-teams')
           ])
@@ -163,6 +153,11 @@ export default function DashboardView({ user, profile }) {
   return (
     <div className="space-y-8 max-w-7xl mx-auto p-4 md:p-8">
       
+      {/* --- 2. THE CRITICAL FIX: Safe Title Tag --- */}
+      <Head>
+        <title>{`Dashboard - ${profile.username || 'User'}`}</title>
+      </Head>
+
       {/* --- BANNER --- */}
       <div className={`relative rounded-2xl shadow-xl overflow-hidden bg-gradient-to-r ${theme.from} ${theme.to} text-white`}>
         <div className="relative z-10 p-8 md:p-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -206,7 +201,7 @@ export default function DashboardView({ user, profile }) {
                 icon={Trophy} 
                 link="/tournament_portal" 
                 linkText="View All" 
-                items={myTournaments} // Uses the filtered list
+                items={myTournaments} 
                 emptyText="No tournaments created yet." 
                 type="tournament" 
               />
@@ -231,7 +226,7 @@ export default function DashboardView({ user, profile }) {
                 icon={Trophy} 
                 link="/tournament_portal"
                 linkText="Browse" 
-                items={myTournaments} // <--- Uses the filtered "Participating" list
+                items={myTournaments} 
                 emptyText="No active tournaments."
                 type="tournament" 
               />

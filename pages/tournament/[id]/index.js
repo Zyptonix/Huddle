@@ -10,7 +10,7 @@ import { generateBracket } from '@/lib/BracketGenerator'
 import { 
   Trophy, Calendar, Users, MapPin, 
   Clock, Activity, Tv, Edit3, Loader, Share2, 
-  Settings, Plus, Play, CheckCircle, X, List, Shield
+  Settings, Plus, Play, CheckCircle, X, List, Shield, MessageSquare, Send, Trash2
 } from 'lucide-react'
 
 // Helper for dates
@@ -46,6 +46,11 @@ export default function TournamentDashboard() {
   // Permissions
   const isOrganizer = tournament?.organizer_id === user?.id
   const isCoach = profile?.role === 'coach'
+    //Announcements
+    // --- FEED STATE ---
+  const [announcements, setAnnouncements] = useState([])
+  const [newAnnouncement, setNewAnnouncement] = useState('')
+  const [commentInputs, setCommentInputs] = useState({})
 
   useEffect(() => {
     if (id) fetchTournamentData()
@@ -80,6 +85,27 @@ export default function TournamentDashboard() {
         const { data: venueData } = await supabase.from('venues').select('*').eq('organizer_id', t.organizer_id)
         setVenues(venueData || [])
       }
+      // 5. Get Announcements (Feed)
+      const { data: feedData } = await supabase
+        .from('announcements')
+        .select(`
+          *,
+          profiles:author_id(username, avatar_url),
+          announcement_comments(
+            *,
+            profiles:user_id(username, avatar_url)
+          )
+        `)
+        .eq('tournament_id', id)
+        .order('created_at', { ascending: false })
+        
+      // Sort comments oldest to newest
+      const sortedFeed = feedData?.map(post => ({
+        ...post,
+        announcement_comments: post.announcement_comments.sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
+      })) || [];
+      
+      setAnnouncements(sortedFeed)
 
     } catch (e) {
       console.error(e)
@@ -170,6 +196,49 @@ export default function TournamentDashboard() {
     }
   }
 
+  // --- FEED HANDLERS ---
+  const handlePostAnnouncement = async () => {
+    if (!newAnnouncement.trim()) return;
+
+    const { error } = await supabase.from('announcements').insert({
+      tournament_id: id,
+      author_id: user.id,
+      content: newAnnouncement
+    });
+
+    if (!error) {
+      setNewAnnouncement('');
+      // Quick refresh to show new post
+      window.location.reload(); 
+    } else {
+      alert("Error: " + error.message);
+    }
+  }
+
+  const handlePostComment = async (announcementId) => {
+    const text = commentInputs[announcementId];
+    if (!text?.trim()) return;
+
+    const { error } = await supabase.from('announcement_comments').insert({
+      announcement_id: announcementId,
+      user_id: user.id,
+      content: text
+    });
+
+    if (!error) {
+      setCommentInputs(prev => ({ ...prev, [announcementId]: '' }));
+      window.location.reload(); 
+    }
+  }
+
+  const handleDeleteAnnouncement = async (postId) => {
+    if(!confirm("Delete this post?")) return;
+    await supabase.from('announcements').delete().eq('id', postId);
+    setAnnouncements(prev => prev.filter(a => a.id !== postId));
+  }
+
+
+
   const handleGenerateSchedule = async () => {
     if (teams.length < 2) return alert("You need at least 2 teams to generate a bracket.");
     
@@ -236,8 +305,10 @@ export default function TournamentDashboard() {
   if (!tournament) return <Layout><div className="p-10 text-center">Tournament Not Found</div></Layout>
 
   // Derived State for UI
-  const liveMatches = matches.filter(m => m.status === 'live')
-  const upcomingMatches = matches.filter(m => m.status === 'scheduled')
+// Derived State for UI
+// FIX: Include 'paused' so these games stay in the "Live" queue
+    const liveMatches = matches.filter(m => m.status === 'live' || m.status === 'paused')
+    const upcomingMatches = matches.filter(m => m.status === 'scheduled')
   const finishedMatches = matches.filter(m => m.status === 'finished' || m.status === 'completed')
   const featuredMatch = liveMatches.length > 0 ? liveMatches[0] : upcomingMatches[0]
 
@@ -349,14 +420,14 @@ export default function TournamentDashboard() {
                </div>
                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
                   <div className="p-3 bg-gray-100 text-gray-600 rounded-lg"><Trophy size={20} /></div>
-                  <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Finished</p><p className="text-xl font-bold text-gray-900">{finishedMatches.length}</p></div>
+                  <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Completed</p><p className="text-xl font-bold text-gray-900">{finishedMatches.length}</p></div>
                </div>
             </div>
 
             {/* === TABS NAVIGATION === */}
             <div className="border-b border-gray-200">
                 <nav className="-mb-px flex space-x-8">
-                    {['overview', 'matches', 'teams', 'venues'].map((tab) => (
+                    {['overview', 'feed','matches', 'teams', 'venues'].map((tab) => (
                         (tab !== 'venues' || isOrganizer) && (
                             <button
                                 key={tab}
@@ -385,11 +456,27 @@ export default function TournamentDashboard() {
                         <div>
                             <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2 mb-4"><Clock size={18} className="text-indigo-600" /> Match Center</h3>
                             {featuredMatch ? (
-                                <div className={`bg-white rounded-2xl border ${featuredMatch.status === 'live' ? 'border-red-200 ring-4 ring-red-50 shadow-red-100' : 'border-gray-200'} shadow-sm overflow-hidden transition-all`}>
+                                <div className={`
+                                    bg-white rounded-2xl border shadow-sm overflow-hidden transition-all
+                                    ${featuredMatch.status === 'live' ? 'border-red-200 ring-4 ring-red-50 shadow-red-100' : 
+                                    featuredMatch.status === 'paused' ? 'border-orange-200 ring-4 ring-orange-50 shadow-orange-100' : 
+                                    'border-gray-200'}
+                                `}>
                                     <div className="bg-gray-50 border-b border-gray-100 p-3 flex justify-between items-center text-xs text-gray-500 font-medium">
-                                        <span className="flex items-center gap-1"><Calendar size={12}/> {formatDate(featuredMatch.match_time)}</span>
-                                        {featuredMatch.status === 'live' ? <span className="flex items-center gap-1 text-red-600 font-bold animate-pulse">● LIVE NOW</span> : <span className="text-gray-400 font-bold tracking-wider">UPCOMING</span>}
-                                        <span className="flex items-center gap-1"><MapPin size={12}/> {featuredMatch.venue_name || 'TBA'}</span>
+                                       <span className="flex items-center gap-1">
+                                            <Calendar size={12}/> 
+                                            {/* Combine the date object with the raw time string */}
+                                            {new Date(featuredMatch.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} 
+                                            {' • '} 
+                                            {featuredMatch.match_time.slice(0, 5)}
+                                        </span>
+                                        {featuredMatch.status === 'live' ? (
+                                            <span className="flex items-center gap-1 text-red-600 font-bold animate-pulse">● LIVE NOW</span>
+                                        ) : featuredMatch.status === 'paused' ? (
+                                            <span className="flex items-center gap-1 text-orange-500 font-bold">⏸ PAUSED</span>
+                                        ) : (
+                                            <span className="text-gray-400 font-bold tracking-wider">UPCOMING</span>
+                                        )}
                                     </div>
                                     <div className="p-6 flex flex-col md:flex-row items-center justify-between gap-6">
                                         <div className="flex-1 text-center">
@@ -476,6 +563,108 @@ export default function TournamentDashboard() {
                       </div>
                   )}
 
+{/* TAB: FEED */}
+                   {activeTab === 'feed' && (
+                     <div className="space-y-6">
+                        {/* Organizer Post Box */}
+                        {isOrganizer && (
+                           <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                              <h3 className="text-sm font-bold text-gray-900 mb-3">Post Announcement</h3>
+                              <textarea
+                                 value={newAnnouncement}
+                                 onChange={(e) => setNewAnnouncement(e.target.value)}
+                                 placeholder="What's happening in the tournament?"
+                                 className="w-full border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none mb-3 resize-none h-24 bg-gray-50"
+                              />
+                              <div className="flex justify-end">
+                                 <button 
+                                    onClick={handlePostAnnouncement}
+                                    className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-indigo-700 transition-colors"
+                                 >
+                                    <Send size={14} /> Post
+                                 </button>
+                              </div>
+                           </div>
+                        )}
+
+                        {/* Feed Stream */}
+                        <div className="space-y-6">
+                           {announcements.length === 0 ? (
+                              <div className="text-center py-10 text-gray-400 italic">No announcements yet.</div>
+                           ) : (
+                              announcements.map((post) => (
+                                 <div key={post.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                                    {/* Post Header */}
+                                    <div className="p-4 flex items-start gap-3">
+                                       <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden">
+                                          {post.profiles?.avatar_url ? (
+                                             <img src={post.profiles.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                                          ) : (
+                                             <div className="w-full h-full flex items-center justify-center text-gray-500"><Users size={16} /></div>
+                                          )}
+                                       </div>
+                                       <div className="flex-1">
+                                          <div className="flex justify-between items-start">
+                                             <div>
+                                                <h4 className="font-bold text-gray-900 text-sm">{post.profiles?.username || 'Organizer'}</h4>
+                                                <span className="text-xs text-gray-400">{new Date(post.created_at).toLocaleDateString()} at {new Date(post.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                             </div>
+                                             {isOrganizer && (
+                                                <button onClick={() => handleDeleteAnnouncement(post.id)} className="text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                             )}
+                                          </div>
+                                          <div className="mt-3 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
+                                             {post.content}
+                                          </div>
+                                       </div>
+                                    </div>
+
+                                    {/* Comments Section */}
+                                    <div className="bg-gray-50 p-4 border-t border-gray-100">
+                                       <h5 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                                          <MessageSquare size={12} /> Comments ({post.announcement_comments.length})
+                                       </h5>
+                                       
+                                       <div className="space-y-3 mb-4">
+                                          {post.announcement_comments.map(comment => (
+                                             <div key={comment.id} className="flex gap-2">
+                                                <div className="w-6 h-6 bg-gray-200 rounded-full flex-shrink-0 mt-0.5 overflow-hidden">
+                                                   {comment.profiles?.avatar_url && <img src={comment.profiles.avatar_url} className="w-full h-full object-cover"/>}
+                                                </div>
+                                                <div className="bg-white border border-gray-200 rounded-tr-lg rounded-br-lg rounded-bl-lg p-2.5 shadow-sm text-sm">
+                                                   <span className="font-bold text-gray-900 mr-2 text-xs">{comment.profiles?.username || 'User'}</span>
+                                                   <span className="text-gray-700">{comment.content}</span>
+                                                </div>
+                                             </div>
+                                          ))}
+                                       </div>
+
+                                       {/* Comment Input */}
+                                       {user && (
+                                          <div className="flex gap-2">
+                                             <input 
+                                                type="text" 
+                                                placeholder="Write a comment..." 
+                                                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                                                value={commentInputs[post.id] || ''}
+                                                onChange={(e) => setCommentInputs(prev => ({...prev, [post.id]: e.target.value}))}
+                                                onKeyDown={(e) => e.key === 'Enter' && handlePostComment(post.id)}
+                                             />
+                                             <button onClick={() => handlePostComment(post.id)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded-lg transition-colors">
+                                                <Send size={16} />
+                                             </button>
+                                          </div>
+                                       )}
+                                    </div>
+                                 </div>
+                              ))
+                           )}
+                        </div>
+                     </div>
+                   )}
+
+
+
                  {/* TAB: TEAMS */}
                   {activeTab === 'teams' && (
                       <div className="grid md:grid-cols-2 gap-4">
@@ -518,6 +707,12 @@ export default function TournamentDashboard() {
                           {teams.length === 0 && <p className="text-gray-500 italic p-4">No teams registered yet.</p>}
                       </div>
                   )}
+
+
+                    
+
+
+
 
                   {/* TAB: VENUES (Organizer Only) */}
                   {activeTab === 'venues' && isOrganizer && (

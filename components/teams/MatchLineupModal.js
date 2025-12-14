@@ -86,46 +86,52 @@ export default function MatchLineupModal({ match, teamId, onClose }) {
     }
   }, [match, teamId]);
 
-  const fetchData = async () => {
+// Replace your existing fetchData with this:
+const fetchData = async () => {
     try {
-      // Fetch Roster
-      const { data: members } = await supabase
-        .from('team_members')
-        .select(`
-          user_id, role,
-          profiles:user_id ( id, username, avatar_url, jersey_number )
-        `)
-        .eq('team_id', teamId)
-        .eq('status', 'active');
+        // 1. Fetch Roster (Keep this part the same)
+        const { data: members } = await supabase
+            .from('team_members')
+            .select(`user_id, role, profiles:user_id ( id, username, avatar_url, jersey_number )`)
+            .eq('team_id', teamId)
+            .eq('status', 'active');
 
-      const formattedRoster = members?.map(m => ({
-        id: m.profiles.id,
-        name: m.profiles.username,
-        number: m.profiles.jersey_number,
-        avatar: m.profiles.avatar_url,
-        role: m.role
-      })) || [];
-      
-      setRoster(formattedRoster);
+        const formattedRoster = members?.map(m => ({
+            id: m.profiles.id,
+            name: m.profiles.username,
+            number: m.profiles.jersey_number,
+            avatar: m.profiles.avatar_url,
+            role: m.role
+        })) || [];
+        setRoster(formattedRoster);
 
-      // Fetch Existing Lineup
-      const { data: existingLineup, error } = await supabase
-        .from('match_lineups')
-        .select('positions_json')
-        .eq('match_id', match.id)
-        .eq('team_id', teamId)
-        .maybeSingle();
+        // 2. Fetch Existing Lineup (UPDATED for Relational)
+        // We now expect multiple rows (one per player)
+        const { data: existingRows, error } = await supabase
+            .from('match_lineups')
+            .select('player_id, position_name') // Select specific columns
+            .eq('match_id', match.id)
+            .eq('team_id', teamId);
 
-      if (error) console.error("Fetch error:", error);
-      if (existingLineup?.positions_json) {
-        setLineup(existingLineup.positions_json);
-      }
+        if (error) console.error("Fetch error:", error);
+
+        // Convert the database rows [ {position_name: 'gk', player_id: '123'} ] 
+        // back into your state Object { gk: '123' }
+        if (existingRows && existingRows.length > 0) {
+            const lineupMap = {};
+            existingRows.forEach(row => {
+                if (row.position_name) {
+                    lineupMap[row.position_name] = row.player_id;
+                }
+            });
+            setLineup(lineupMap);
+        }
     } catch (error) {
-      console.error('Error fetching lineup data:', error);
+        console.error('Error fetching lineup data:', error);
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
-  };
+};
 
   const handlePlayerSelect = (positionKey, playerId) => {
     // If selecting "Select Player" (empty string), just remove the key
@@ -142,34 +148,57 @@ export default function MatchLineupModal({ match, teamId, onClose }) {
     }));
   };
 
-  const handleSave = async () => {
+// Replace your existing handleSave with this:
+const handleSave = async () => {
     setSaving(true);
     try {
-      // 1. Validate: Ensure match_id and team_id are present
-      if (!match.id || !teamId) throw new Error("Invalid Match or Team ID");
+        if (!match.id || !teamId) throw new Error("Invalid Match or Team ID");
 
-      const payload = {
-        match_id: match.id,
-        team_id: teamId,
-        positions_json: lineup
-      };
+        // 1. Convert State Object { gk: "id1", fwd: "id2" } 
+        // into an Array of Rows [ { player_id: "id1", position: "gk" }, ... ]
+        const rowsToInsert = Object.entries(lineup).map(([positionKey, playerId]) => ({
+            match_id: match.id,
+            team_id: teamId,
+            player_id: playerId,
+            position_name: positionKey, // Ensure your DB has this column (or 'position')
+            is_starter: true // Since these are the starting lineup
+        }));
 
-      // 2. Upsert
-      const { error } = await supabase
-        .from('match_lineups')
-        .upsert(payload, { onConflict: 'match_id, team_id' }); // This string must match the Constraint Columns
+        if (rowsToInsert.length === 0) {
+            alert("Please select at least one player.");
+            setSaving(false);
+            return;
+        }
 
-      if (error) throw error;
-      onClose();
-      alert('Lineup saved successfully!');
+        // 2. CLEAR OLD LINEUP (Critical Step)
+        // Since we are inserting individual rows, we clear the previous lineup for this team first
+        const { error: deleteError } = await supabase
+            .from('match_lineups')
+            .delete()
+            .eq('match_id', match.id)
+            .eq('team_id', teamId);
+
+        if (deleteError) throw deleteError;
+
+        // 3. INSERT NEW LINEUP
+        const { data, error } = await supabase
+            .from('match_lineups')
+            .insert(rowsToInsert)
+            .select();
+
+        if (error) throw error;
+
+        console.log("Saved Players:", data);
+        alert('Lineup saved successfully!');
+        onClose();
+
     } catch (error) {
-      alert('Failed to save lineup: ' + error.message);
-      console.error(error);
+        console.error('Save Error:', error);
+        alert('Failed to save: ' + error.message);
     } finally {
-      setSaving(false);
+        setSaving(false);
     }
-  };
-
+};
   const getPlayer = (id) => roster.find(p => p.id === id);
 
   // --- LOGIC TO DISABLE SELECTED PLAYERS ---
