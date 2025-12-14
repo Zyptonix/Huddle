@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabaseClient'; 
 import Button from './Button'; 
+import { Heart } from 'lucide-react';
 
 export default function FollowButton({ currentUser, targetId, targetType, onToggle }) {
   const [isFollowing, setIsFollowing] = useState(false);
@@ -68,13 +69,13 @@ export default function FollowButton({ currentUser, targetId, targetType, onTogg
     <Button 
       onClick={handleToggleFollow} 
       disabled={loading}
-      // UPDATED COLORS HERE
-      className={`min-w-[100px] transition-colors ${
+      className={`min-w-[100px] py-2 px-4 transition-all text-sm font-semibold rounded-lg flex items-center justify-center gap-2 ${
         isFollowing 
-          ? 'bg-gray-500 text-white hover:bg-gray-700 border border-black' 
-          : 'bg-blue-600 text-black hover:bg-blue-800 border border-black'
+          ? 'bg-gray-400 text-white hover:bg-gray-600 border border-transparent' 
+          : 'bg-purple-600 text-white hover:bg-purple-700 shadow-md shadow-purple-200 border border-transparent'
       }`}
     >
+      <Heart size={16} className={isFollowing ? 'text-gray-600' : 'fill-red-600 text-red-600'} />
       {loading ? '...' : isFollowing ? 'Unfollow' : 'Follow'}
     </Button>
   );

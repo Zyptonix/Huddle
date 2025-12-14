@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import { useAuth } from '../../context/AuthContext'
 import Layout from '../../components/ui/Layout'
-import { User, Shield, Trophy, Send, MessageSquare, MapPin, BarChart2 } from 'lucide-react'
+import { User, Shield, MessageSquare, MapPin, Award, Calendar, Shirt, Briefcase, Clipboard, Megaphone } from 'lucide-react'
 import { supabase } from '../../lib/supabaseClient'
 import FollowButton from '../../components/ui/FollowButton'
 import PlayerStatsDashboard from '../../components/dashboards/PlayerStatsDashboard'
+import CommentSection from '../../components/ui/CommentSection' // <--- IMPORTED HERE
 
 export default function PublicProfile() {
   const router = useRouter()
@@ -13,13 +14,7 @@ export default function PublicProfile() {
   const { user } = useAuth()
   
   const [profile, setProfile] = useState(null)
-  const [comments, setComments] = useState([])
-  const [newComment, setNewComment] = useState('')
   const [loading, setLoading] = useState(true)
-  const [actionLoading, setActionLoading] = useState(false)
-  const [activeTab, setActiveTab] = useState('overview') 
-
-  // Follow Stats
   const [followerCount, setFollowerCount] = useState(0)
   const [followingCount, setFollowingCount] = useState(0)
 
@@ -31,260 +26,248 @@ export default function PublicProfile() {
   }, [id])
 
   const fetchFollowStats = async () => {
-    const { count: followers } = await supabase
-      .from('follows')
-      .select('id', { count: 'exact', head: true })
-      .eq('following_user_id', id)
-
-    const { count: following } = await supabase
-      .from('follows')
-      .select('id', { count: 'exact', head: true })
-      .eq('follower_id', id)
-
+    const { count: followers } = await supabase.from('follows').select('id', { count: 'exact', head: true }).eq('following_user_id', id)
+    const { count: following } = await supabase.from('follows').select('id', { count: 'exact', head: true }).eq('follower_id', id)
     setFollowerCount(followers || 0)
     setFollowingCount(following || 0)
   }
 
   const fetchProfileData = async () => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', id)
-        .single()
-
-      if (error) {
-        console.error('Error fetching profile:', error.message)
-      } else {
-        setProfile(data)
-        // Reset tab to overview if the loaded profile isn't a player
-        if (data.role !== 'player') {
-            setActiveTab('overview');
-        }
-      }
-    } catch (err) {
-      console.error('Unexpected error:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handlePostComment = async (e) => {
-    e.preventDefault()
-    // Logic to post comment...
-    console.log("Posting comment:", newComment)
-    setNewComment('')
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', id).single()
+      if (!error) setProfile(data)
+    } catch (err) { console.error(err) } 
+    finally { setLoading(false) }
   }
 
   const handleMessage = async () => {
-    if (!user) {
-      router.push('/login');
-      return;
-    }
-    
-    if (user.id === id) {
-        alert("You cannot message yourself.");
-        return;
-    }
-
-    setActionLoading(true);
-
+    if (!user) return router.push('/login');
     try {
       const res = await fetch('/api/messages/start-conversation', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ otherUserId: id })
       });
-
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to start conversation");
-      }
-
       router.push({ pathname: '/messages', query: { conversationId: data.id } });
-
-    } catch (error) {
-      console.error("Error in message handler:", error);
-      alert("Could not open chat. Please try again.");
-    } finally {
-      setActionLoading(false);
-    }
+    } catch (error) { alert("Could not open chat."); }
   }
 
-  if (loading) return <Layout><div className="p-10 text-center">Loading Profile...</div></Layout>
+  if (loading) return <Layout><div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div></Layout>
 
-  if (!profile) return (
-    <Layout>
-        <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <User size={64} className="text-gray-300 mb-4" />
-            <h2 className="text-xl font-bold text-gray-700">User not found</h2>
-            <p className="text-gray-500">The profile you are looking for does not exist.</p>
-        </div>
-    </Layout>
-  )
+  if (!profile) return <Layout><div className="p-10 text-center">User not found</div></Layout>
+
+  // --- ROLE LOGIC ---
+  const role = (profile.role || 'fan').toLowerCase();
+  const isPlayer = role === 'player';
+  const isCoach = role === 'coach';
+  const isOrganizer = role === 'organizer';
+
+  // Dynamic Labels
+  const labels = {
+    historyTitle: isCoach ? 'Coaching History' : isOrganizer ? 'Events Organized' : 'Career Journey',
+    historyItem: isCoach ? 'Managed' : isOrganizer ? 'Hosted' : 'Former Team',
+    achievements: isCoach ? 'Philosophy & Certs' : isOrganizer ? 'Organization Details' : 'Achievements',
+    ageLabel: isCoach ? 'Experience (Yrs)' : 'Age'
+  };
 
   return (
-    <Layout title={`${profile.username || 'User'} - Profile`}>
-      <div className="h-48 bg-gradient-to-r from-blue-600 to-purple-600 rounded-t-2xl relative">
-        <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
-            {user?.id === id ? (
-                <button onClick={() => router.push('/account')} className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg text-sm font-bold backdrop-blur-sm transition-all border border-white/50">
-                    Edit Profile
-                </button>
-            ) : (
-                <>
-                    <FollowButton 
-                        currentUser={user} 
-                        targetId={id} 
-                        targetType="user" 
-                        onToggle={() => fetchFollowStats()} 
-                    />
-                    
-                    <button 
-                        onClick={handleMessage}
-                        disabled={actionLoading}
-                        className="bg-white text-gray-900 hover:bg-gray-100 border border-black px-4 py-2 rounded-lg text-sm font-bold shadow-sm flex items-center gap-2 transition-all min-w-[100px] justify-center disabled:opacity-70 disabled:cursor-not-allowed"
-                    >
-                        <MessageSquare size={16} />
-                        {actionLoading ? 'Loading...' : 'Message'}
+    <Layout title={`${profile.username} - ${role.charAt(0).toUpperCase() + role.slice(1)} Profile`}>
+      {/* --- HERO HEADER --- */}
+      <div className="relative bg-gray-900 text-white overflow-hidden">
+        <div className={`absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] ${isCoach ? 'from-orange-500 via-red-500' : 'from-blue-500 via-purple-500'} to-transparent`}></div>
+        
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-32">
+          <div className="flex flex-col md:flex-row gap-8 items-center md:items-end">
+            
+            {/* Avatar */}
+            <div className="relative group">
+              <div className="h-40 w-40 md:h-48 md:w-48 rounded-2xl border-4 border-white/10 bg-gray-800 shadow-2xl overflow-hidden flex items-center justify-center">
+                {profile.avatar_url ? (
+                  <img src={profile.avatar_url} alt={profile.username} className="h-full w-full object-cover" />
+                ) : (
+                  <User size={64} className="text-gray-600"/>
+                )}
+              </div>
+            </div>
+
+            {/* Name & Role Info */}
+            <div className="flex-grow text-center md:text-left z-10">
+              <div className="flex flex-col md:flex-row items-center md:items-baseline gap-4 mb-2">
+                <h1 className="text-4xl md:text-6xl font-black tracking-tight uppercase italic">{profile.username}</h1>
+                
+                {isPlayer && profile.jersey_number && (
+                  <span className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400 opacity-80">
+                    #{profile.jersey_number}
+                  </span>
+                )}
+                {isCoach && (
+                   <span className="bg-orange-500/20 text-orange-300 border border-orange-500/50 px-3 py-1 rounded-lg text-sm font-bold uppercase tracking-widest flex items-center gap-2">
+                     <Clipboard size={16} /> Head Coach
+                   </span>
+                )}
+                {isOrganizer && (
+                   <span className="bg-purple-500/20 text-purple-300 border border-purple-500/50 px-3 py-1 rounded-lg text-sm font-bold uppercase tracking-widest flex items-center gap-2">
+                     <Megaphone size={16} /> Organizer
+                   </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap justify-center md:justify-start gap-4 text-gray-300 text-sm font-medium mb-6">
+                 {profile.sport && (
+                   <span className="flex items-center gap-1 bg-white/10 px-3 py-1 rounded-full uppercase tracking-wider">
+                     <Shield size={14} className="text-blue-400"/> {profile.sport}
+                   </span>
+                 )}
+                 {isPlayer && profile.positions_preferred && (
+                   <span className="flex items-center gap-1 bg-white/10 px-3 py-1 rounded-full">
+                     <Shirt size={14} className="text-purple-400"/> {profile.positions_preferred}
+                   </span>
+                 )}
+                 <span className="flex items-center gap-1">
+                   <MapPin size={14} /> {profile.address || 'Unknown Location'}
+                 </span>
+              </div>
+
+              <div className="flex gap-4">
+                 <div className="text-center md:text-left">
+                    <div className="text-2xl font-bold text-white">{followerCount}</div>
+                    <div className="text-xs text-gray-400 uppercase tracking-widest">Followers</div>
+                 </div>
+                 <div className="w-px bg-gray-700 h-10"></div>
+                 <div className="text-center md:text-left">
+                    <div className="text-2xl font-bold text-white">{followingCount}</div>
+                    <div className="text-xs text-gray-400 uppercase tracking-widest">Following</div>
+                 </div>
+              </div>
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3 z-10">
+                {user?.id !== id ? (
+                    <>
+                        <FollowButton currentUser={user} targetId={id} targetType="user" onToggle={fetchFollowStats} />
+                        <button onClick={handleMessage} className="bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm border border-white/20 p-3 rounded-xl transition-all">
+                            <MessageSquare size={20} />
+                        </button>
+                    </>
+                ) : (
+                    <button onClick={() => router.push('/account')} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-900/20 transition-all">
+                        Edit Profile
                     </button>
-                </>
-            )}
+                )}
+            </div>
+          </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-b-2xl shadow-sm border border-gray-200 px-8 pb-8 mb-8">
-        <div className="relative flex flex-col md:flex-row items-center md:items-end -mt-16 mb-6 gap-6">
-           <div className="h-32 w-32 rounded-full border-4 border-white bg-white shadow-lg overflow-hidden flex-shrink-0">
-             {profile.avatar_url ? (
-               <img src={profile.avatar_url} alt={profile.username} className="h-full w-full object-cover" />
-             ) : (
-               <div className="h-full w-full bg-gray-100 flex items-center justify-center"><User size={40} className="text-gray-300"/></div>
-             )}
-           </div>
-           
-           <div className="text-center md:text-left flex-grow">
-              <h1 className="text-3xl font-extrabold text-gray-900">{profile.username || 'Unknown User'}</h1>
-              
-              <div className="flex flex-col md:flex-row gap-4 mt-2">
-                  <div className="flex items-center justify-center md:justify-start gap-2 text-gray-500">
-                     <Shield size={16} /> <span className="capitalize">{profile.role || 'Member'}</span>
-                     {profile.jersey_number && <span className="bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full">#{profile.jersey_number}</span>}
-                  </div>
-
-                  <div className="flex items-center gap-4 text-sm">
-                      <div className="flex gap-1 text-gray-600">
-                          <span className="font-bold text-gray-900">{followerCount}</span> Followers
-                      </div>
-                      <div className="flex gap-1 text-gray-600">
-                          <span className="font-bold text-gray-900">{followingCount}</span> Following
-                      </div>
-                  </div>
-              </div>
-           </div>
-        </div>
-
-        {/* --- TABS --- */}
-        <div className="flex gap-6 mt-8 border-b border-gray-200">
-            <button 
-                onClick={() => setActiveTab('overview')}
-                className={`pb-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'overview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-            >
-                <User size={18} /> Overview
-            </button>
+      {/* --- CONTENT GRID --- */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-20 relative z-20 pb-20">
+        <div className="grid lg:grid-cols-3 gap-8">
             
-            {/* ONLY SHOW STATS TAB IF THE PROFILE BELONGS TO A PLAYER */}
-            {profile.role === 'player' && (
-                <button 
-                    onClick={() => setActiveTab('stats')}
-                    className={`pb-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'stats' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-                >
-                    <BarChart2 size={18} /> Statistics
-                </button>
-            )}
-        </div>
-
-        <div className="mt-8">
-            {activeTab === 'overview' ? (
-                <div className="grid md:grid-cols-3 gap-8">
-                    {/* LEFT: Info */}
-                    <div className="space-y-6">
-                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-100">
-                            <h3 className="font-bold text-gray-900 mb-3 flex items-center gap-2"><User size={18}/> About</h3>
-                            <div className="space-y-2 text-sm text-gray-600">
-                                <p><strong>Age:</strong> {profile.age || 'N/A'}</p>
-                                <p className="flex items-center gap-1">
-                                    <MapPin size={14} /> 
-                                    {profile.address || 'Location Hidden'}
-                                </p>
-                                {profile.positions_preferred && (
-                                    <div>
-                                        <strong className="block mb-1">Positions:</strong>
-                                        <span className="bg-gray-200 px-2 py-0.5 rounded text-xs">{profile.positions_preferred}</span>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {(profile.notable_achievements || profile.previous_teams) && (
-                            <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
-                                <h3 className="font-bold text-yellow-800 mb-3 flex items-center gap-2"><Trophy size={18}/> Career</h3>
-                                {profile.previous_teams && (
-                                    <div className="mb-2">
-                                        <span className="text-xs font-bold text-yellow-800 uppercase">Teams</span>
-                                        <p className="text-sm text-yellow-700">{profile.previous_teams}</p>
-                                    </div>
-                                )}
-                                {profile.notable_achievements && (
-                                    <div>
-                                        <span className="text-xs font-bold text-yellow-800 uppercase">Achievements</span>
-                                        <p className="text-sm text-yellow-700">{profile.notable_achievements}</p>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-
-                    {/* RIGHT: Feed */}
-                    <div className="md:col-span-2 space-y-6">
-                        <div className="bg-white border border-gray-200 rounded-xl p-6">
-                            <h3 className="font-bold text-gray-900 mb-4">Wall</h3>
-                            {user && (
-                                <form onSubmit={handlePostComment} className="flex gap-3 mb-8">
-                                    <div className="h-10 w-10 rounded-full bg-gray-200 overflow-hidden flex-shrink-0">
-                                        <div className="h-full w-full bg-gray-300 flex items-center justify-center"><User size={20} className="text-white"/></div>
-                                    </div>
-                                    <div className="flex-grow relative">
-                                        <input 
-                                            type="text" 
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-full px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                                            placeholder={`Write something to ${profile.username}...`}
-                                            value={newComment}
-                                            onChange={e => setNewComment(e.target.value)}
-                                        />
-                                        <button type="submit" className="absolute right-2 top-1.5 p-1 text-blue-600 hover:bg-blue-100 rounded-full">
-                                            <Send size={18} />
-                                        </button>
-                                    </div>
-                                </form>
-                            )}
-                            <div className="space-y-4">
-                                {comments.length === 0 ? <p className="text-gray-400 italic text-center">No comments yet.</p> : comments.map(c => (
-                                    <div key={c.id} className="flex gap-3">
-                                        {/* Render Comment */}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+            {/* LEFT COLUMN: Details */}
+            <div className="space-y-6">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wider mb-4 border-b border-gray-100 pb-2">
+                        {isCoach ? 'Coach Details' : 'Personal Details'}
+                    </h3>
+                    <div className="space-y-4">
+                        <DetailRow label={labels.ageLabel} value={profile.age || 'N/A'} />
+                        {isPlayer && <DetailRow label="Height" value={profile.height || 'N/A'} />}
+                        <DetailRow label="Role" value={role.toUpperCase()} />
+                        <DetailRow label="Joined" value={new Date(profile.created_at).toLocaleDateString()} />
                     </div>
                 </div>
-            ) : (
-                /* --- STATS TAB CONTENT (Only renders if activeTab === 'stats', which is only reachable by players) --- */
-                <PlayerStatsDashboard playerId={id} />
-            )}
+
+                <div className={`rounded-2xl border p-6 ${isCoach ? 'bg-orange-50 border-orange-100' : 'bg-gradient-to-br from-yellow-50 to-orange-50 border-yellow-100'}`}>
+                    <h3 className={`text-sm font-bold uppercase tracking-wider mb-4 flex items-center gap-2 ${isCoach ? 'text-orange-800' : 'text-yellow-800'}`}>
+                        {isCoach ? <Briefcase size={18}/> : <Award size={18}/>} 
+                        {labels.achievements}
+                    </h3>
+                    <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+                        {profile.notable_achievements || `No ${labels.achievements.toLowerCase()} listed.`}
+                    </p>
+                </div>
+            </div>
+
+            {/* RIGHT COLUMN: Stats & History & COMMENTS */}
+            <div className="lg:col-span-2 space-y-8">
+                
+                {/* 1. STATS (Players Only) */}
+                {isPlayer && (
+                    <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+                        <div className="bg-gray-50 border-b border-gray-100 px-6 py-4 flex justify-between items-center">
+                            <h2 className="font-black text-xl text-gray-800 flex items-center gap-2">
+                                <ActivityIcon /> Live Season Stats
+                            </h2>
+                            <span className="text-xs font-bold bg-green-100 text-green-700 px-2 py-1 rounded">ACTIVE</span>
+                        </div>
+                        <div className="p-6">
+                            <PlayerStatsDashboard playerId={id} />
+                        </div>
+                    </div>
+                )}
+
+                {/* 2. HISTORY */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+                    <h3 className="font-bold text-gray-900 text-lg mb-6 flex items-center gap-2">
+                        <Calendar size={20} className={isCoach ? "text-orange-600" : "text-blue-600"}/> 
+                        {labels.historyTitle}
+                    </h3>
+                    {profile.previous_teams ? (
+                        <div className="space-y-0">
+                            {profile.previous_teams.split(',').map((team, index) => (
+                                <div key={index} className="flex gap-4 group">
+                                    <div className="flex flex-col items-center">
+                                        <div className={`w-3 h-3 rounded-full border-2 transition-colors z-10 ${
+                                            isCoach ? 'bg-orange-200 border-orange-600 group-hover:bg-orange-600' : 'bg-blue-200 border-blue-600 group-hover:bg-blue-600'
+                                        }`}></div>
+                                        {index !== profile.previous_teams.split(',').length - 1 && (
+                                            <div className="w-0.5 h-full bg-gray-200 -my-1"></div>
+                                        )}
+                                    </div>
+                                    <div className="pb-8 -mt-1.5">
+                                        <p className="font-bold text-gray-800 text-lg">{team.trim()}</p>
+                                        <p className="text-sm text-gray-500">{labels.historyItem}</p>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="text-center py-8 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                            <p className="text-gray-400 italic">No history added yet.</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* 3. COMMENTS SECTION (New!) */}
+                <CommentSection 
+                    targetId={id} 
+                    table="profile_comments" 
+                    foreignKey="profile_id" 
+                    title={isCoach ? "Coach's Guestbook" : "Fan Wall"} 
+                />
+
+            </div>
         </div>
       </div>
     </Layout>
   )
+}
+
+function DetailRow({ label, value }) {
+    return (
+        <div className="flex justify-between items-center py-1">
+            <span className="text-gray-500 text-sm">{label}</span>
+            <span className="font-semibold text-gray-900 text-sm">{value}</span>
+        </div>
+    )
+}
+
+function ActivityIcon() {
+    return (
+        <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+    )
 }

@@ -27,10 +27,32 @@ export default function CoachPlayerAvailabilityDashboard() {
   const checkAccessAndFetchData = async () => {
     setLoading(true);
     try {
-      // Check current user's role
+      // 1. Fetch User Availability Data
       const userRes = await fetch('/api/players/availability');
+      
+      // --- FIX STARTS HERE ---
+      // Safety Check: Handle 401 (Unauthorized) or other API errors
+      if (!userRes.ok) {
+        if (userRes.status === 401) {
+          console.error("User session invalid or expired.");
+          setAccessDenied(true); // Treat as denied so UI doesn't crash
+          setLoading(false);
+          return;
+        }
+        throw new Error(`API Error: ${userRes.status}`);
+      }
+
       const userData = await userRes.json();
       
+      // Safety Check: Ensure we actually got player data back
+      if (!userData || !userData.player) {
+        console.error("Invalid data format received:", userData);
+        showMessage("Error loading user profile", "error");
+        setLoading(false);
+        return;
+      }
+      // --- FIX ENDS HERE ---
+
       setCurrentUser(userData.player);
 
       // Only coaches can access this page
@@ -42,18 +64,21 @@ export default function CoachPlayerAvailabilityDashboard() {
 
       // Fetch coach's teams
       const teamsRes = await fetch('/api/teams/created');
-      const teamsData = await teamsRes.json();
-      setMyTeams(teamsData);
+      if (teamsRes.ok) {
+          const teamsData = await teamsRes.json();
+          setMyTeams(teamsData);
 
-      // Select first team by default
-      if (teamsData.length > 0) {
-        setSelectedTeam(teamsData[0].id);
+          // Select first team by default
+          if (teamsData.length > 0) {
+            setSelectedTeam(teamsData[0].id);
+          }
       }
 
       await fetchPlayers();
+
     } catch (error) {
       console.error('Error checking access:', error);
-      showMessage('Error loading data', 'error');
+      showMessage('Error loading dashboard data', 'error');
     } finally {
       setLoading(false);
     }
@@ -65,6 +90,9 @@ export default function CoachPlayerAvailabilityDashboard() {
         ? `/api/players/available-players?sport=${sportFilter}`
         : '/api/players/available-players';
       const playersRes = await fetch(playersUrl);
+      
+      if (!playersRes.ok) throw new Error("Failed to fetch players");
+
       const playersData = await playersRes.json();
       
       setAvailablePlayers(playersData.available || []);
@@ -117,7 +145,6 @@ export default function CoachPlayerAvailabilityDashboard() {
 
       if (invitationRes.ok) {
         showMessage(`Invitation message sent to ${player.username}! They will receive it in their messages.`, 'success');
-        // Don't show the modal anymore since we're sending a message
       } else {
         showMessage(data.error || 'Failed to send invitation', 'error');
       }
@@ -155,11 +182,11 @@ export default function CoachPlayerAvailabilityDashboard() {
           <AlertCircle className="w-16 h-16 text-red-600 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-gray-800 mb-2">Access Denied</h1>
           <p className="text-gray-600 mb-4">
-            This page is only accessible to coaches. Players cannot view this dashboard.
+             You need to be logged in as a Coach to view this page.
           </p>
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-left">
-            <p className="text-sm text-red-800 font-semibold mb-1">Your Role: Player</p>
-            <p className="text-xs text-red-600">You need coach privileges to access the player availability system.</p>
+            <p className="text-sm text-red-800 font-semibold mb-1">Status: Unauthorized</p>
+            <p className="text-xs text-red-600">Please try logging out and logging back in.</p>
           </div>
         </div>
       </div>

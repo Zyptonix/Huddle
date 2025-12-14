@@ -11,6 +11,8 @@ import Layout from '../../components/ui/Layout'
 import Loading from '../../components/ui/Loading'
 import TeamSchedule from '@/components/teams/TeamSchedule'
 import TeamStats from '@/components/teams/TeamStats'
+import FollowButton from '@/components/ui/FollowButton'
+import CommentSection from '../../components/ui/CommentSection' // <--- IMPORTED HERE
 
 export default function TeamProfile() {
   const router = useRouter()
@@ -19,7 +21,8 @@ export default function TeamProfile() {
   
   // Data State
   const [team, setTeam] = useState(null)
-  const [members, setMembers] = useState([])
+  const [members, setMembers] = useState([]
+  const [followerCount, setFollowerCount] = useState(0)
   const [topScorers, setTopScorers] = useState([])
   const [participatedTournaments, setParticipatedTournaments] = useState([])
   const [currentUserProfile, setCurrentUserProfile] = useState(null) 
@@ -42,8 +45,7 @@ export default function TeamProfile() {
   const pendingRequests = members.filter(m => m.status === 'pending')
 
   const isActiveMember = myMembership?.status === 'active'
-  const isPending = myMembership?.status === 'pending'
-  
+  const isPending = myMembership?.status === 'pending'  
   const isGlobalCoachOrOrganizer = currentUserProfile?.role === 'coach' || currentUserProfile?.role === 'organizer'
 
   useEffect(() => {
@@ -66,30 +68,44 @@ export default function TeamProfile() {
         setTeam(null); setLoading(false); return
       }
 
+      // 3. Fetch Owner Data
       const { data: ownerData } = await supabase.from('profiles').select('username, avatar_url, positions_preferred').eq('id', teamData.owner_id).single()
+      
+      const ownerPosition = Array.isArray(ownerData?.positions_preferred) 
+        ? ownerData.positions_preferred.join(', ') 
+        : ownerData?.positions_preferred || 'Manager';
 
-      const completeTeam = { ...teamData, owner: ownerData }
+      const completeTeam = { ...teamData, owner: { ...ownerData, position: ownerPosition } }
       setTeam(completeTeam)
       setEditForm({ ...completeTeam, is_recruiting: completeTeam.is_recruiting || false })
 
-      // C. Fetch Members
-      const { data: membersData, error: membersError } = await supabase
+      // 4. Fetch Members
+      const { data: membersData } = await supabase
         .from('team_members')
         .select(`*, profiles:user_id (username, positions_preferred, avatar_url, jersey_number)`)
         .eq('team_id', id)
-
-      if (membersError) throw membersError
-
-      const formattedMembers = membersData.map(m => ({
-          ...m,
-          username: m.profiles?.username,
-          position: Array.isArray(m.profiles?.positions_preferred) 
-            ? m.profiles?.positions_preferred.join(', ') 
-            : m.profiles?.positions_preferred, 
-          jersey_number: m.profiles?.jersey_number,
-          avatar_url: m.profiles?.avatar_url
-      }))
+      
+      const formattedMembers = membersData ? membersData.map(m => {
+        const posRaw = m.profiles?.positions_preferred;
+        const posStr = Array.isArray(posRaw) ? posRaw.join(', ') : posRaw;
+        return {
+            ...m,
+            username: m.profiles?.username,
+            position: posStr, 
+            jersey_number: m.profiles?.jersey_number,
+            avatar_url: m.profiles?.avatar_url
+        }
+      }) : []
       setMembers(formattedMembers)
+
+      // 5. Fetch Follower Count
+      const { count } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact', head: true })
+        .eq('following_team_id', id)
+      
+      setFollowerCount(count || 0)
+      
 
       // D. Fetch Tournament History
       const { data: tourneyData } = await supabase
@@ -140,6 +156,7 @@ export default function TeamProfile() {
     }
   }
 
+
   // --- ACTIONS ---
   const handleRequestJoin = async () => {
     try {
@@ -148,7 +165,10 @@ export default function TeamProfile() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: user.id }) 
       })
-      if (!res.ok) throw new Error('Request failed')
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.message || 'Request failed')
+      }
       alert("Request sent to team owner!")
       fetchData() 
     } catch (error) { alert(error.message) }
@@ -183,13 +203,11 @@ export default function TeamProfile() {
         const { data } = supabase.storage.from('team-logos').getPublicUrl(fileName)
         finalLogoUrl = data.publicUrl
       }
-
       const { error } = await supabase.from('teams').update({
           name: editForm.name, description: editForm.description,
           sport: editForm.sport, logo_url: finalLogoUrl,
           is_recruiting: editForm.is_recruiting 
         }).eq('id', id)
-
       if (error) throw error
       const updatedTeam = { ...team, ...editForm, logo_url: finalLogoUrl }
       setTeam(updatedTeam); setEditForm(updatedTeam); setIsEditing(false)
@@ -199,6 +217,11 @@ export default function TeamProfile() {
 
   const copyJoinCode = () => {
     if (team?.join_code) { navigator.clipboard.writeText(team.join_code); alert("Join code copied!"); }
+  }
+
+  // Handle immediate UI update when following/unfollowing
+  const handleFollowToggle = (isNowFollowing) => {
+    setFollowerCount(prev => isNowFollowing ? prev + 1 : prev - 1)
   }
 
   if (loading) return <Loading />
@@ -215,12 +238,50 @@ export default function TeamProfile() {
 
   return (
     <Layout title={`${team.name} - Huddle`}>
-      <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8">
-        
-        {/* === HEADER SECTION === */}
-        <div className="bg-white rounded-3xl shadow-lg border border-gray-200 overflow-hidden relative">
-          <div className="h-48 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 relative">
-             <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')]"></div>
+      <div className="max-w-7xl mx-auto p-4 md:p-8">
+        {/* EDIT MODAL */}
+        {isEditing && (
+            <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
+                <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+                    <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                        <h3 className="font-bold text-lg">Edit Team Details</h3>
+                        <button onClick={() => setIsEditing(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+                    </div>
+                    <form onSubmit={handleUpdateTeam} className="p-6 space-y-4">
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-2">Team Logo</label>
+                            <div className="flex items-center gap-4">
+                                <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center overflow-hidden border border-gray-200">
+                                    {logoFile ? <img src={URL.createObjectURL(logoFile)} className="w-full h-full object-cover" /> : 
+                                     editForm.logo_url ? <img src={editForm.logo_url} className="w-full h-full object-cover" /> : <Shield className="text-gray-300" />}
+                                </div>
+                                <label className="cursor-pointer bg-white border border-gray-300 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center gap-2">
+                                    <Upload size={16}/> Upload New Logo
+                                    <input type="file" accept="image/*" className="hidden" onChange={(e) => setLogoFile(e.target.files[0])} />
+                                </label>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Team Name</label>
+                            <input type="text" value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-bold text-gray-700 mb-1">Description</label>
+                            <textarea value={editForm.description || ''} onChange={e => setEditForm({...editForm, description: e.target.value})} className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 outline-none h-24 resize-none" />
+                        </div>
+                        <div className="pt-2 flex justify-end gap-3">
+                            <button type="button" onClick={() => setIsEditing(false)} className="px-4 py-2 text-gray-600 font-bold hover:bg-gray-100 rounded-lg">Cancel</button>
+                            <button type="submit" disabled={uploading} className="px-6 py-2 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50">{uploading ? 'Uploading...' : 'Save Changes'}</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        )}
+
+        {/* HERO BANNER */}
+        <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden mb-8 relative z-10">
+          <div className="h-40 bg-gradient-to-r from-indigo-600 to-blue-500 relative">
+             <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-30"></div>
           </div>
           
           <div className="px-8 pb-6">
@@ -244,11 +305,36 @@ export default function TeamProfile() {
                         ))}
                       </div>
                    </div>
-                   <p className="text-gray-500 font-medium text-lg">{team.sport === 'football' ? 'Football Club' : 'Basketball Team'} • Est. {new Date(team.created_at).getFullYear()}</p>
+                   <h1 className="text-4xl font-bold text-gray-900 mb-2">{team.name}</h1>
+                   
+                   {/* STATS ROW WITH FOLLOWER COUNT */}
+                   <p className="text-gray-500 text-sm flex items-center gap-6 font-medium">
+                      <span className="flex items-center gap-1.5"><Users size={16} className="text-gray-400"/> {activeMembers.length} Members</span>
+                      <span className="flex items-center gap-1.5"><Trophy size={16} className="text-yellow-500"/> {team.wins || 0} Wins</span>
+                      <span className="flex items-center gap-1.5"><Heart size={16} className="text-purple-500 fill-purple-500"/> {followerCount} Followers</span>
+                   </p>
+                   
+                   {isOwner && team.join_code && (
+                       <div className="mt-3 inline-flex items-center gap-3 bg-gray-50 border border-gray-200 px-4 py-2 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors group" onClick={copyJoinCode}>
+                           <div className="flex flex-col">
+                               <span className="text-[10px] uppercase font-bold text-gray-400 leading-none">Team Join Code</span>
+                               <span className="font-mono font-bold text-lg text-gray-800 tracking-wider leading-none mt-1">{team.join_code}</span>
+                           </div>
+                           <Copy size={16} className="text-gray-400 group-hover:text-indigo-600" />
+                       </div>
+                   )}
                 </div>
+                
+                {/* 3. BUTTON LOGIC */}
+                <div className="mt-4 md:mt-14 flex flex-col md:flex-row gap-3 items-center">
+                   
+                   <FollowButton 
+                        currentUser={user} 
+                        targetId={team.id} 
+                        targetType="team" 
+                        onToggle={handleFollowToggle}
+                   />
 
-                {/* Main Action Button */}
-                <div className="mb-4">
                    {isOwner ? (
                       <button onClick={() => setIsEditing(true)} className="bg-slate-900 text-white hover:bg-slate-800 px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg transition-transform hover:scale-105">
                          <Edit3 size={18} /> Manage Club
@@ -490,8 +576,18 @@ export default function TeamProfile() {
                             )}
                         </div>
                     </div>
-                </div>
-            )}
+                 ))}
+             </div>
+
+             {/* --- COMMENT SECTION ADDED HERE --- */}
+             <CommentSection 
+                targetId={id} 
+                table="team_comments" 
+                foreignKey="team_id" 
+                title="Fan Wall" 
+            />
+
+           </div>
         </div>
 
         {/* === EDIT MODAL (Global) === */}
