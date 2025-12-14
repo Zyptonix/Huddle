@@ -3,7 +3,7 @@ import { useRouter } from 'next/router'
 import Link from 'next/link'
 import { 
   Users, Shield, Trophy, UserPlus, Edit3, X, MapPin, 
-  Calendar, Activity, ClipboardList, LogOut, Check, Ban, Upload
+  Calendar, Activity, ClipboardList, LogOut, Check, Ban, Upload, Copy
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../lib/supabaseClient'
@@ -20,7 +20,7 @@ export default function TeamProfile() {
   
   const [team, setTeam] = useState(null)
   const [members, setMembers] = useState([])
-  // REMOVED: matches state (handled by TeamSchedule now)
+  const [currentUserProfile, setCurrentUserProfile] = useState(null) // To check current user's global role
   const [loading, setLoading] = useState(true)
 
   // Edit Mode State
@@ -37,18 +37,33 @@ export default function TeamProfile() {
   const activeMembers = members.filter(m => m.status === 'active')
   const pendingRequests = members.filter(m => m.status === 'pending')
 
-  // Check specific user statuses
+  // Check specific user statuses within THIS team
   const isActiveMember = myMembership?.status === 'active'
   const isPending = myMembership?.status === 'pending'
-  const isCoach = isOwner || (isActiveMember && (myMembership?.role === 'coach' || myMembership?.role === 'captain'))
   
+  // Permission: Coach or Captain or Owner can set lineups (Logic usually handled in Schedule/Modal, but status defined here)
+  const isTeamStaff = isOwner || (isActiveMember && (myMembership?.role === 'coach' || myMembership?.role === 'captain'))
+
+  // Global Role Check (from public.profiles) to prevent other coaches from joining
+  // Assuming 'role' in profiles table is 'fan', 'player', 'coach', or 'organizer'
+  const isGlobalCoachOrOrganizer = currentUserProfile?.role === 'coach' || currentUserProfile?.role === 'organizer'
+
   useEffect(() => {
     if (id && user) fetchData()
   }, [id, user])
 
   const fetchData = async () => {
     try {
-      // 1. Fetch Team Details
+      // 1. Fetch Current User Profile (for global role check)
+      const { data: myProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+      
+      setCurrentUserProfile(myProfile)
+
+      // 2. Fetch Team Details
       const { data: teamData, error: teamError } = await supabase
         .from('teams')
         .select('*')
@@ -61,14 +76,13 @@ export default function TeamProfile() {
         return
       }
 
-      // 2. Fetch Owner's Profile Manually
+      // 3. Fetch Owner's Profile Manually
       const { data: ownerData } = await supabase
         .from('profiles')
         .select('username, avatar_url, positions_preferred') 
         .eq('id', teamData.owner_id)
         .single()
       
-      // FIX: Handle array to string conversion safely
       const ownerPosition = Array.isArray(ownerData?.positions_preferred) 
         ? ownerData.positions_preferred.join(', ') 
         : ownerData?.positions_preferred || 'Manager';
@@ -82,7 +96,7 @@ export default function TeamProfile() {
       setTeam(completeTeam)
       setEditForm(completeTeam)
 
-      // 3. Fetch ALL Members
+      // 4. Fetch ALL Members
       const { data: membersData } = await supabase
         .from('team_members')
         .select(`
@@ -92,7 +106,6 @@ export default function TeamProfile() {
         .eq('team_id', id)
       
       const formattedMembers = membersData ? membersData.map(m => {
-        // FIX: Handle array to string conversion safely for all members
         const posRaw = m.profiles?.positions_preferred;
         const posStr = Array.isArray(posRaw) ? posRaw.join(', ') : posRaw;
 
@@ -106,8 +119,6 @@ export default function TeamProfile() {
       }) : []
       
       setMembers(formattedMembers)
-
-      // REMOVED: Match fetching logic (It is now inside TeamSchedule component)
       
     } catch (e) {
       console.error("Global fetch error:", e)
@@ -188,6 +199,13 @@ export default function TeamProfile() {
       alert("Error updating team: " + error.message)
     } finally {
       setUploading(false)
+    }
+  }
+
+  const copyJoinCode = () => {
+    if (team?.join_code) {
+        navigator.clipboard.writeText(team.join_code);
+        alert("Join code copied to clipboard!");
     }
   }
 
@@ -278,6 +296,17 @@ export default function TeamProfile() {
                       <span className="flex items-center gap-1"><Users size={16} className="text-gray-400"/> {activeMembers.length} Members</span>
                       <span className="flex items-center gap-1"><Trophy size={16} className="text-yellow-500"/> {team.wins || 0} Wins</span>
                    </p>
+                   
+                   {/* JOIN CODE DISPLAY (OWNER ONLY) */}
+                   {isOwner && team.join_code && (
+                       <div className="mt-3 inline-flex items-center gap-3 bg-gray-50 border border-gray-200 px-4 py-2 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors group" onClick={copyJoinCode}>
+                           <div className="flex flex-col">
+                               <span className="text-[10px] uppercase font-bold text-gray-400 leading-none">Team Join Code</span>
+                               <span className="font-mono font-bold text-lg text-gray-800 tracking-wider leading-none mt-1">{team.join_code}</span>
+                           </div>
+                           <Copy size={16} className="text-gray-400 group-hover:text-indigo-600" />
+                       </div>
+                   )}
                 </div>
                 
                 {/* 3. BUTTON LOGIC */}
@@ -291,9 +320,12 @@ export default function TeamProfile() {
                         <Activity size={16} className="animate-pulse" /> Request Pending...
                       </button>
                    ) : (
-                      <button onClick={handleRequestJoin} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md shadow-indigo-200 text-sm transition-all">
-                         Request to Join
-                      </button>
+                      // RESTRICT JOIN: If user is a coach or organizer, they cannot see the Join button
+                      !isGlobalCoachOrOrganizer && (
+                          <button onClick={handleRequestJoin} className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-6 rounded-lg shadow-md shadow-indigo-200 text-sm transition-all">
+                             Request to Join
+                          </button>
+                      )
                    )}
                 </div>
              </div>
@@ -303,14 +335,7 @@ export default function TeamProfile() {
         <div className="grid lg:grid-cols-3 gap-8">
            <div className="space-y-6">
 
-             {/* TACTICAL CENTER (COACH ONLY) */}
-             {isCoach && (
-                 <div className="bg-indigo-50 border border-indigo-100 p-6 rounded-2xl">
-                    <h3 className="font-bold text-indigo-900 mb-2 flex items-center gap-2"><ClipboardList size={20}/> Tactical Center</h3>
-                    <p className="text-sm text-indigo-700 mb-4">Set your default formation for upcoming matches.</p>
-                    <Link href={`/teams/${team.id}/strategy`}><button className="w-full bg-white text-indigo-600 font-bold py-2.5 rounded-lg text-sm border border-indigo-200 hover:bg-indigo-50 transition-colors shadow-sm">Edit Default Strategy</button></Link>
-                 </div>
-             )}
+             {/* REMOVED: Tactical Center (Default Strategy) as requested */}
 
              {/* ABOUT */}
              <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
@@ -362,11 +387,14 @@ export default function TeamProfile() {
                 </div>
              )}
 
-             {/* SCHEDULE (Using the standalone component) */}
+             {/* SCHEDULE */}
+             {/* The TeamSchedule component should likely handle the Match Lineup Modal internally. */}
+             {/* We pass the teamID. If permissions issues persist in the modal, they must be fixed in TeamSchedule or MatchLineupModal.js */}
              <TeamSchedule teamId={id} />
             
-                         {/* STATS */}
-            <TeamStats teamId={id} />
+             {/* STATS */}
+             <TeamStats teamId={id} />
+
              {/* ROSTER */}
              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                  <div className="bg-gray-50/50 px-6 py-4 border-b border-gray-200 flex justify-between items-center"><span className="font-bold text-gray-700 flex items-center gap-2"><Users size={18} className="text-indigo-500"/> Active Roster</span><span className="text-xs font-semibold bg-white border border-gray-200 px-2 py-1 rounded text-gray-600">{coaches.length + players.length} Players</span></div>
