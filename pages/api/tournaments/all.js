@@ -7,7 +7,6 @@ export default async function handler(req, res) {
     return res.status(405).end(`Method ${req.method} Not Allowed`)
   }
 
-  // Use a standard client for public data fetching to avoid cookie issues
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -20,12 +19,16 @@ export default async function handler(req, res) {
       profiles:organizer_id (
         username,
         avatar_url
+      ),
+
+      teams:tournament_teams (
+        team_id
       )
     `)
     .order('created_at', { ascending: false })
 
   if (error) {
-    console.error('Supabase Error:', error) // Check your server console!
+    console.error('Supabase Error:', error)
     return res.status(500).json({ error: error.message })
   }
 

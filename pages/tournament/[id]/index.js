@@ -6,12 +6,11 @@ import { supabase } from '../../../lib/supabaseClient'
 import Layout from '../../../components/ui/Layout'
 import LeagueTable from '../../../components/tournaments/LeagueTable'
 import KnockoutBracket from '@/components/tournaments/KnockoutBracket'
-// Add this to your imports
 import { generateBracket } from '@/lib/BracketGenerator'
 import { 
   Trophy, Calendar, Users, MapPin, 
   Clock, Activity, Tv, Edit3, Loader, Share2, 
-  Settings, Plus, Play, CheckCircle, X, List, Shield
+  Settings, Plus, Play, CheckCircle, X, List, Shield, MessageSquare, Send, Trash2
 } from 'lucide-react'
 
 // Helper for dates
@@ -40,9 +39,18 @@ export default function TournamentDashboard() {
   const [editForm, setEditForm] = useState({})
   const [newVenue, setNewVenue] = useState('')
 
+  // --- NEW: Multi-Team Selector State ---
+  const [showTeamSelector, setShowTeamSelector] = useState(false)
+  const [teamsToSelect, setTeamsToSelect] = useState([])
+
   // Permissions
   const isOrganizer = tournament?.organizer_id === user?.id
   const isCoach = profile?.role === 'coach'
+    //Announcements
+    // --- FEED STATE ---
+  const [announcements, setAnnouncements] = useState([])
+  const [newAnnouncement, setNewAnnouncement] = useState('')
+  const [commentInputs, setCommentInputs] = useState({})
 
   useEffect(() => {
     if (id) fetchTournamentData()
@@ -77,6 +85,27 @@ export default function TournamentDashboard() {
         const { data: venueData } = await supabase.from('venues').select('*').eq('organizer_id', t.organizer_id)
         setVenues(venueData || [])
       }
+      // 5. Get Announcements (Feed)
+      const { data: feedData } = await supabase
+        .from('announcements')
+        .select(`
+          *,
+          profiles:author_id(username, avatar_url),
+          announcement_comments(
+            *,
+            profiles:user_id(username, avatar_url)
+          )
+        `)
+        .eq('tournament_id', id)
+        .order('created_at', { ascending: false })
+        
+      // Sort comments oldest to newest
+      const sortedFeed = feedData?.map(post => ({
+        ...post,
+        announcement_comments: post.announcement_comments.sort((a,b) => new Date(a.created_at) - new Date(b.created_at))
+      })) || [];
+      
+      setAnnouncements(sortedFeed)
 
     } catch (e) {
       console.error(e)
@@ -96,19 +125,15 @@ export default function TournamentDashboard() {
     }
   }
 
-
   const handleTeamAction = async (teamId, action) => {
-    // action should be 'approved' or 'rejected'
     try {
       const { error } = await supabase
-        .from('tournament_teams') // The join table
+        .from('tournament_teams')
         .update({ status: action })
         .eq('tournament_id', id)
-        .eq('team_id', teamId) // We identify the row by Tournament ID + Team ID
+        .eq('team_id', teamId)
 
       if (error) throw error
-      
-      // Refresh the list to show the new status
       fetchTournamentData()
       
     } catch (error) {
@@ -117,21 +142,46 @@ export default function TournamentDashboard() {
     }
   }
 
+  // --- FIXED JOIN LOGIC ---
 
-  const handleJoinTournament = async () => {
-    const { data: team } = await supabase.from('teams').select('id').eq('owner_id', user.id).single()
-    if (!team) return alert("You need to create a team first!")
-
+  // 1. The actual database insert (separated from the check)
+  const registerTeam = async (teamId) => {
     const { error } = await supabase.from('tournament_teams').insert({
         tournament_id: id,
-        team_id: team.id,
+        team_id: teamId,
         status: 'pending'
     })
     
-    if (error) alert(error.message)
-    else {
-        alert("Request sent!")
-        fetchTournamentData()
+    if (error) {
+        // Handle duplicate join error nicely
+        if (error.code === '23505') alert("This team is already registered!")
+        else alert(error.message)
+    } else {
+        alert("Request sent! Waiting for organizer approval.")
+        setShowTeamSelector(false) // Close modal if open
+        fetchTournamentData() // Refresh list
+    }
+  }
+
+  // 2. The check (Determines if we need the modal)
+  const handleJoinTournament = async () => {
+    // Select ALL teams, not just .single()
+    const { data: myTeams } = await supabase
+        .from('teams')
+        .select('id, name, logo_url')
+        .eq('owner_id', user.id)
+
+    if (!myTeams || myTeams.length === 0) {
+        return alert("You need to create a team first!")
+    }
+
+    if (myTeams.length === 1) {
+        // If user has only 1 team, join immediately
+        registerTeam(myTeams[0].id)
+    } else {
+        // If user has multiple teams, show the selector
+        setTeamsToSelect(myTeams)
+        setShowTeamSelector(true)
     }
   }
 
@@ -146,11 +196,52 @@ export default function TournamentDashboard() {
     }
   }
 
-const handleGenerateSchedule = async () => {
-    // 1. Safety Checks
+  // --- FEED HANDLERS ---
+  const handlePostAnnouncement = async () => {
+    if (!newAnnouncement.trim()) return;
+
+    const { error } = await supabase.from('announcements').insert({
+      tournament_id: id,
+      author_id: user.id,
+      content: newAnnouncement
+    });
+
+    if (!error) {
+      setNewAnnouncement('');
+      // Quick refresh to show new post
+      window.location.reload(); 
+    } else {
+      alert("Error: " + error.message);
+    }
+  }
+
+  const handlePostComment = async (announcementId) => {
+    const text = commentInputs[announcementId];
+    if (!text?.trim()) return;
+
+    const { error } = await supabase.from('announcement_comments').insert({
+      announcement_id: announcementId,
+      user_id: user.id,
+      content: text
+    });
+
+    if (!error) {
+      setCommentInputs(prev => ({ ...prev, [announcementId]: '' }));
+      window.location.reload(); 
+    }
+  }
+
+  const handleDeleteAnnouncement = async (postId) => {
+    if(!confirm("Delete this post?")) return;
+    await supabase.from('announcements').delete().eq('id', postId);
+    setAnnouncements(prev => prev.filter(a => a.id !== postId));
+  }
+
+
+
+  const handleGenerateSchedule = async () => {
     if (teams.length < 2) return alert("You need at least 2 teams to generate a bracket.");
     
-    // Check if it's a power of 2 (4, 8, 16, 32)
     const log2 = Math.log2(teams.length);
     if (tournament.format === 'knockout' && log2 % 1 !== 0) {
         return alert(`For a proper knockout bracket, you need 4, 8, 16, or 32 teams. You currently have ${teams.length}. Please add dummy/bye teams.`);
@@ -161,7 +252,6 @@ const handleGenerateSchedule = async () => {
     setLoading(true);
 
     try {
-        // 2. Clear existing matches first (Optional but recommended to avoid duplicates)
         const { error: deleteError } = await supabase
             .from('matches')
             .delete()
@@ -169,10 +259,7 @@ const handleGenerateSchedule = async () => {
             
         if (deleteError) throw deleteError;
 
-        // 3. GENERATE BASED ON FORMAT
         if (tournament.format === 'knockout') {
-            // --- NEW LOGIC: Call the helper function we created ---
-            // We pass the tournament ID and the list of approved teams
             const approvedTeams = teams.filter(t => t.status === 'approved');
             
             if(approvedTeams.length !== teams.length) {
@@ -182,12 +269,10 @@ const handleGenerateSchedule = async () => {
                }
             }
 
-            await generateBracket(id, approvedTeams); // <--- THE MAGIC HAPPENS HERE
-            
+            await generateBracket(id, approvedTeams);
             alert("Knockout Bracket Generated Successfully! 🏆");
         
         } else {
-            // --- OLD LOGIC: Keep your existing API call for Leagues ---
             const res = await fetch(`/api/tournaments/${id}/generate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -198,7 +283,6 @@ const handleGenerateSchedule = async () => {
             alert(`Success! Generated league schedule.`);
         }
 
-        // 4. Refresh Data
         fetchTournamentData();
         setActiveTab('matches');
 
@@ -221,24 +305,48 @@ const handleGenerateSchedule = async () => {
   if (!tournament) return <Layout><div className="p-10 text-center">Tournament Not Found</div></Layout>
 
   // Derived State for UI
-  const liveMatches = matches.filter(m => m.status === 'live')
-  const upcomingMatches = matches.filter(m => m.status === 'scheduled')
+// Derived State for UI
+// FIX: Include 'paused' so these games stay in the "Live" queue
+    const liveMatches = matches.filter(m => m.status === 'live' || m.status === 'paused')
+    const upcomingMatches = matches.filter(m => m.status === 'scheduled')
   const finishedMatches = matches.filter(m => m.status === 'finished' || m.status === 'completed')
   const featuredMatch = liveMatches.length > 0 ? liveMatches[0] : upcomingMatches[0]
 
-
-  // === ADD THIS DEBUG BLOCK ===
-  console.log('Format:', tournament?.format);
-  console.log('Knockout Component:', KnockoutBracket);
-  console.log('League Component:', LeagueTable);
-  // ============================
-
-  
   return (
     <Layout title={tournament.name}>
        <div className="min-h-screen bg-gray-50 p-4 md:p-8">
           <div className="max-w-7xl mx-auto space-y-8">
             
+            {/* === TEAM SELECTOR MODAL (New) === */}
+            {showTeamSelector && (
+              <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+                <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+                  <div className="bg-indigo-900 p-4 flex justify-between items-center">
+                    <h3 className="text-white font-bold text-lg">Select Team to Join</h3>
+                    <button onClick={() => setShowTeamSelector(false)} className="text-indigo-200 hover:text-white"><X size={20}/></button>
+                  </div>
+                  <div className="p-4 max-h-[60vh] overflow-y-auto space-y-3">
+                    <p className="text-sm text-gray-500 mb-2">Which team are you registering for this tournament?</p>
+                    {teamsToSelect.map((team) => (
+                      <button
+                        key={team.id}
+                        onClick={() => registerTeam(team.id)}
+                        className="w-full flex items-center gap-4 p-3 rounded-lg border border-gray-200 hover:border-indigo-500 hover:bg-indigo-50 transition-all text-left group"
+                      >
+                        <div className="w-10 h-10 rounded bg-gray-200 flex items-center justify-center overflow-hidden">
+                           {team.logo_url ? <img src={team.logo_url} className="w-full h-full object-cover"/> : <Shield size={16} className="text-gray-400"/>}
+                        </div>
+                        <div>
+                          <span className="block font-bold text-gray-900 group-hover:text-indigo-700">{team.name}</span>
+                          <span className="text-xs text-gray-400">Select this team</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* === EDIT MODAL === */}
             {isEditing && (
                 <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in">
@@ -312,14 +420,14 @@ const handleGenerateSchedule = async () => {
                </div>
                <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
                   <div className="p-3 bg-gray-100 text-gray-600 rounded-lg"><Trophy size={20} /></div>
-                  <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Finished</p><p className="text-xl font-bold text-gray-900">{finishedMatches.length}</p></div>
+                  <div><p className="text-xs text-gray-500 font-bold uppercase tracking-wider">Completed</p><p className="text-xl font-bold text-gray-900">{finishedMatches.length}</p></div>
                </div>
             </div>
 
             {/* === TABS NAVIGATION === */}
             <div className="border-b border-gray-200">
                 <nav className="-mb-px flex space-x-8">
-                    {['overview', 'matches', 'teams', 'venues'].map((tab) => (
+                    {['overview', 'feed','matches', 'teams', 'venues'].map((tab) => (
                         (tab !== 'venues' || isOrganizer) && (
                             <button
                                 key={tab}
@@ -348,11 +456,27 @@ const handleGenerateSchedule = async () => {
                         <div>
                             <h3 className="font-bold text-gray-900 text-lg flex items-center gap-2 mb-4"><Clock size={18} className="text-indigo-600" /> Match Center</h3>
                             {featuredMatch ? (
-                                <div className={`bg-white rounded-2xl border ${featuredMatch.status === 'live' ? 'border-red-200 ring-4 ring-red-50 shadow-red-100' : 'border-gray-200'} shadow-sm overflow-hidden transition-all`}>
+                                <div className={`
+                                    bg-white rounded-2xl border shadow-sm overflow-hidden transition-all
+                                    ${featuredMatch.status === 'live' ? 'border-red-200 ring-4 ring-red-50 shadow-red-100' : 
+                                    featuredMatch.status === 'paused' ? 'border-orange-200 ring-4 ring-orange-50 shadow-orange-100' : 
+                                    'border-gray-200'}
+                                `}>
                                     <div className="bg-gray-50 border-b border-gray-100 p-3 flex justify-between items-center text-xs text-gray-500 font-medium">
-                                        <span className="flex items-center gap-1"><Calendar size={12}/> {formatDate(featuredMatch.match_time)}</span>
-                                        {featuredMatch.status === 'live' ? <span className="flex items-center gap-1 text-red-600 font-bold animate-pulse">● LIVE NOW</span> : <span className="text-gray-400 font-bold tracking-wider">UPCOMING</span>}
-                                        <span className="flex items-center gap-1"><MapPin size={12}/> {featuredMatch.venue_name || 'TBA'}</span>
+                                       <span className="flex items-center gap-1">
+                                            <Calendar size={12}/> 
+                                            {/* Combine the date object with the raw time string */}
+                                            {new Date(featuredMatch.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} 
+                                            {' • '} 
+                                            {featuredMatch.match_time.slice(0, 5)}
+                                        </span>
+                                        {featuredMatch.status === 'live' ? (
+                                            <span className="flex items-center gap-1 text-red-600 font-bold animate-pulse">● LIVE NOW</span>
+                                        ) : featuredMatch.status === 'paused' ? (
+                                            <span className="flex items-center gap-1 text-orange-500 font-bold">⏸ PAUSED</span>
+                                        ) : (
+                                            <span className="text-gray-400 font-bold tracking-wider">UPCOMING</span>
+                                        )}
                                     </div>
                                     <div className="p-6 flex flex-col md:flex-row items-center justify-between gap-6">
                                         <div className="flex-1 text-center">
@@ -439,6 +563,108 @@ const handleGenerateSchedule = async () => {
                       </div>
                   )}
 
+{/* TAB: FEED */}
+                   {activeTab === 'feed' && (
+                     <div className="space-y-6">
+                        {/* Organizer Post Box */}
+                        {isOrganizer && (
+                           <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+                              <h3 className="text-sm font-bold text-gray-900 mb-3">Post Announcement</h3>
+                              <textarea
+                                 value={newAnnouncement}
+                                 onChange={(e) => setNewAnnouncement(e.target.value)}
+                                 placeholder="What's happening in the tournament?"
+                                 className="w-full border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none mb-3 resize-none h-24 bg-gray-50"
+                              />
+                              <div className="flex justify-end">
+                                 <button 
+                                    onClick={handlePostAnnouncement}
+                                    className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-indigo-700 transition-colors"
+                                 >
+                                    <Send size={14} /> Post
+                                 </button>
+                              </div>
+                           </div>
+                        )}
+
+                        {/* Feed Stream */}
+                        <div className="space-y-6">
+                           {announcements.length === 0 ? (
+                              <div className="text-center py-10 text-gray-400 italic">No announcements yet.</div>
+                           ) : (
+                              announcements.map((post) => (
+                                 <div key={post.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                                    {/* Post Header */}
+                                    <div className="p-4 flex items-start gap-3">
+                                       <div className="w-10 h-10 bg-gray-200 rounded-full overflow-hidden">
+                                          {post.profiles?.avatar_url ? (
+                                             <img src={post.profiles.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                                          ) : (
+                                             <div className="w-full h-full flex items-center justify-center text-gray-500"><Users size={16} /></div>
+                                          )}
+                                       </div>
+                                       <div className="flex-1">
+                                          <div className="flex justify-between items-start">
+                                             <div>
+                                                <h4 className="font-bold text-gray-900 text-sm">{post.profiles?.username || 'Organizer'}</h4>
+                                                <span className="text-xs text-gray-400">{new Date(post.created_at).toLocaleDateString()} at {new Date(post.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                             </div>
+                                             {isOrganizer && (
+                                                <button onClick={() => handleDeleteAnnouncement(post.id)} className="text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={16} /></button>
+                                             )}
+                                          </div>
+                                          <div className="mt-3 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
+                                             {post.content}
+                                          </div>
+                                       </div>
+                                    </div>
+
+                                    {/* Comments Section */}
+                                    <div className="bg-gray-50 p-4 border-t border-gray-100">
+                                       <h5 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3 flex items-center gap-2">
+                                          <MessageSquare size={12} /> Comments ({post.announcement_comments.length})
+                                       </h5>
+                                       
+                                       <div className="space-y-3 mb-4">
+                                          {post.announcement_comments.map(comment => (
+                                             <div key={comment.id} className="flex gap-2">
+                                                <div className="w-6 h-6 bg-gray-200 rounded-full flex-shrink-0 mt-0.5 overflow-hidden">
+                                                   {comment.profiles?.avatar_url && <img src={comment.profiles.avatar_url} className="w-full h-full object-cover"/>}
+                                                </div>
+                                                <div className="bg-white border border-gray-200 rounded-tr-lg rounded-br-lg rounded-bl-lg p-2.5 shadow-sm text-sm">
+                                                   <span className="font-bold text-gray-900 mr-2 text-xs">{comment.profiles?.username || 'User'}</span>
+                                                   <span className="text-gray-700">{comment.content}</span>
+                                                </div>
+                                             </div>
+                                          ))}
+                                       </div>
+
+                                       {/* Comment Input */}
+                                       {user && (
+                                          <div className="flex gap-2">
+                                             <input 
+                                                type="text" 
+                                                placeholder="Write a comment..." 
+                                                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-indigo-500"
+                                                value={commentInputs[post.id] || ''}
+                                                onChange={(e) => setCommentInputs(prev => ({...prev, [post.id]: e.target.value}))}
+                                                onKeyDown={(e) => e.key === 'Enter' && handlePostComment(post.id)}
+                                             />
+                                             <button onClick={() => handlePostComment(post.id)} className="text-indigo-600 hover:bg-indigo-50 p-2 rounded-lg transition-colors">
+                                                <Send size={16} />
+                                             </button>
+                                          </div>
+                                       )}
+                                    </div>
+                                 </div>
+                              ))
+                           )}
+                        </div>
+                     </div>
+                   )}
+
+
+
                  {/* TAB: TEAMS */}
                   {activeTab === 'teams' && (
                       <div className="grid md:grid-cols-2 gap-4">
@@ -481,6 +707,12 @@ const handleGenerateSchedule = async () => {
                           {teams.length === 0 && <p className="text-gray-500 italic p-4">No teams registered yet.</p>}
                       </div>
                   )}
+
+
+                    
+
+
+
 
                   {/* TAB: VENUES (Organizer Only) */}
                   {activeTab === 'venues' && isOrganizer && (
