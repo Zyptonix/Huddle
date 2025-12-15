@@ -423,7 +423,7 @@ const getStatValue = (key) => team?.stats?.[key] || 0;
                    <span className="text-2xl font-black text-gray-800">{activeMembers.length}</span>
                 </div>
                 <div className="flex flex-col">
-                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Season Wins</span>
+                   <span className="text-xs uppercase font-bold text-gray-400 tracking-wider">Match Wins</span>
                    <span className="text-2xl font-black text-emerald-600">{team.wins || 0}</span>
                 </div>
                   <div className="flex flex-col">
